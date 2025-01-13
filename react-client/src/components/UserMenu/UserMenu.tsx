@@ -14,9 +14,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 51
  * Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
-import { Menu, ActionIcon } from '@mantine/core';
+import { Menu, ActionIcon, VisuallyHidden } from '@mantine/core';
 import { useContext } from 'react';
-import { Home, InfoCircle, Logout, Menu2, PlayerPlay, Settings, Share, Tool, User, Users } from 'tabler-icons-react';
+import { IconHome, IconInfoCircle, IconLogout, IconMenu2, IconPlayerPlay, IconSettings, IconShare, IconTool, IconUser, IconUsers } from '@tabler/icons-react';
 
 import I18nContext from '../../contexts/i18n-context';
 import SessionContext from '../../contexts/session-context';
@@ -31,23 +31,24 @@ function UserMenu() {
     <Menu>
       <Menu.Target>
         <ActionIcon variant='default' size={30}>
-          <Menu2 size={16} />
+          <VisuallyHidden>{i18n.get('MainMenu')}</VisuallyHidden>
+          <IconMenu2 size={16} />
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
-        {!session.player &&
+        {!session.player && havePermission(session, Permissions.settings_view) &&
           <Menu.Item
             color='green'
-            icon={<Home size={14} />}
+            leftSection={<IconHome size={14} />}
             onClick={() => { window.location.href = '/'; }}
           >
-            {i18n.get['Home']}
+            {i18n.get('Home')}
           </Menu.Item>
         }
         {havePermission(session, Permissions.web_player_browse) && (
           <Menu.Item
             color='blue'
-            icon={<PlayerPlay size={14} />}
+            leftSection={<IconPlayerPlay size={14} />}
             onClick={() => { window.location.href = '/player'; }}
           >
             {i18n.getI18nString('Player')}
@@ -55,55 +56,55 @@ function UserMenu() {
         )}
         {!session.player && <>
           <Menu.Divider />
-          <Menu.Label>{i18n.get['Settings']}</Menu.Label>
+          <Menu.Label>{i18n.get('Settings')}</Menu.Label>
           {havePermission(session, Permissions.settings_view) && (
             <Menu.Item
-              icon={<Share size={14} />}
+              leftSection={<IconShare size={14} />}
               onClick={() => { window.location.href = '/shared'; }}
             >
-              {i18n.get['SharedContent']}
+              {i18n.get('SharedContent')}
             </Menu.Item>
           )}
           {havePermission(session, (Permissions.server_restart | Permissions.computer_shutdown) | Permissions.settings_modify) && (
             <Menu.Item
-              icon={<Tool size={14} />}
+              leftSection={<IconTool size={14} />}
               onClick={() => { window.location.href = '/actions'; }}
             >
-              {i18n.get['Tools']}
+              {i18n.get('Tools')}
             </Menu.Item>
           )}
           {havePermission(session, Permissions.settings_view) && (
             <Menu.Item
-              icon={<Settings size={14} />}
+              leftSection={<IconSettings size={14} />}
               onClick={() => { window.location.href = '/settings'; }}
             >
-              {i18n.get['ServerSettings']}
+              {i18n.get('ServerSettings')}
             </Menu.Item>
           )}
           <Menu.Item
-            icon={havePermission(session, Permissions.users_manage) ? <Users size={14} /> : <User size={14} />}
+            leftSection={havePermission(session, Permissions.users_manage) ? <IconUsers size={14} /> : <IconUser size={14} />}
             onClick={() => { window.location.href = '/accounts'; }}
           >
-            {havePermission(session, Permissions.users_manage) ? i18n.get['ManageAccounts'] : i18n.get['MyAccount']}
+            {havePermission(session, Permissions.users_manage) ? i18n.get('ManageAccounts') : i18n.get('MyAccount')}
           </Menu.Item>
         </>}
         <Menu.Divider />
         <Menu.Item
           color='yellow'
-          icon={<InfoCircle size={14} />}
+          leftSection={<IconInfoCircle size={14} />}
           onClick={() => { window.location.href = '/about'; }}
         >
-          {i18n.get['About']}
+          {i18n.get('About')}
         </Menu.Item>
         {session.authenticate && session.account?.user.id !== 2147483647 && (
           <Menu.Item
-            color='red'
-            icon={<Logout size={14} />}
+            color='rgba(255, 0, 0, 1)'
+            leftSection={<IconLogout size={14} />}
             onClick={() => {
               redirectToLogin();
             }}
           >
-            {i18n.get['LogOut']}
+            {i18n.get('LogOut')}
           </Menu.Item>
         )}
       </Menu.Dropdown>

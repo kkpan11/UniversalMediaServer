@@ -34,6 +34,7 @@ export const Permissions = {
   'computer_shutdown': 1 << 23,
   'web_player_browse': 1 << 25,
   'web_player_download': 1 << 26,
+  'web_player_edit': 1 << 27,
   'all': -1
 };
 
@@ -51,22 +52,27 @@ export const havePermission = (session: UmsSession, permission: number) => {
 }
 
 export const getUserGroup = (user: UmsUser, accounts: UmsAccounts) => {
-  accounts.groups.forEach((group) => {
-    if (group.id === user.groupId) {
-      return group;
-    }
-  });
-  return { id: 0, displayName: '' } as UmsGroup;
+  const group = accounts.groups && accounts.groups.find((group: UmsGroup) => group.id === user.groupId);
+  return group !== undefined ? group : { id: 0, displayName: '' } as UmsGroup;
 };
 
-export const getUserGroupsSelection = (accounts: UmsAccounts, none: string) => {
+export const getGroupName = (groupId: number, groups: UmsGroup[]) => {
+  const group = groups && groups.find((group: UmsGroup) => group.id === groupId);
+  return group !== undefined ? group.displayName : null;
+};
+
+export const getUserGroupsSelection = (groups: UmsGroup[], none?: string) => {
   const result = [];
-  result.push({ value: '0', label: none });
-  accounts.groups.forEach((group) => {
-    if (group.id > 0) {
-      result.push({ value: group.id.toString(), label: group.displayName });
-    }
-  });
+  if (none) {
+    result.push({ value: '0', label: none });
+  }
+  if (groups) {
+    groups.forEach((group: UmsGroup) => {
+      if (group.id > 0) {
+        result.push({ value: group.id.toString(), label: group.displayName });
+      }
+    });
+  }
   return result;
 };
 

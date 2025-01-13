@@ -45,13 +45,14 @@ import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.pms.PMS;
+import net.pms.configuration.UmsConfiguration;
 import net.pms.io.IPipeProcess;
 import net.pms.io.OutputParams;
 import net.pms.io.ProcessWrapperImpl;
 import net.pms.platform.PlatformProgramPaths;
 import net.pms.platform.PlatformUtils;
-import net.pms.service.process.ProcessManager;
 import net.pms.service.process.AbstractProcessTerminator;
+import net.pms.service.process.ProcessManager;
 import net.pms.service.sleep.AbstractSleepWorker;
 import net.pms.service.sleep.PreventSleepMode;
 import net.pms.service.sleep.SleepManager;
@@ -72,7 +73,6 @@ import org.slf4j.LoggerFactory;
  */
 public class WindowsUtils extends PlatformUtils {
 	private static final Logger LOGGER = LoggerFactory.getLogger(WindowsUtils.class);
-	private final Charset consoleCharset;
 
 	private final boolean kerio;
 	protected final Path psPing;
@@ -132,8 +132,7 @@ public class WindowsUtils extends PlatformUtils {
 					LOGGER.trace("Using short path name of \"{}\": \"{}\"", pathname, result);
 					return result;
 				}
-				LOGGER.debug("Can't find \"{}\"", pathname);
-				return null;
+				return longPathName;
 
 			} catch (Exception e) {
 				return longPathName;
@@ -215,7 +214,25 @@ public class WindowsUtils extends PlatformUtils {
 	 *         or {@code null} if it couldn't be converted.
 	 */
 	public static Charset getOEMCharset() {
-		int codepage = Kernel32.INSTANCE.GetOEMCP();
+		return getCharset(Kernel32.INSTANCE.GetOEMCP());
+	}
+
+	/**
+	 * @return The result from the Windows API {@code GetConsoleOutputCP()}.
+	 */
+	public static int getConsoleOutputCP() {
+		return Kernel32.INSTANCE.GetConsoleOutputCP();
+	}
+
+	/**
+	 * @return The result of {@link #getConsoleOutputCP()} converted to a {@link Charset}
+	 *         or {@code null} if it couldn't be converted.
+	 */
+	public static Charset getConsoleOutputCharset() {
+		return getCharset(Kernel32.INSTANCE.GetOEMCP());
+	}
+
+	private static Charset getCharset(int codepage) {
 		Charset result = null;
 		String[] aliases = {"cp" + codepage, "MS" + codepage};
 		for (String alias : aliases) {
@@ -229,13 +246,6 @@ public class WindowsUtils extends PlatformUtils {
 		return result;
 	}
 
-	/**
-	 * @return The result from the Windows API {@code GetConsoleOutputCP()}.
-	 */
-	public static int getConsoleOutputCP() {
-		return Kernel32.INSTANCE.GetConsoleOutputCP();
-	}
-
 	private static String charString2String(CharBuffer buf) {
 		char[] chars = buf.array();
 		int i;
@@ -247,15 +257,10 @@ public class WindowsUtils extends PlatformUtils {
 		return new String(chars, 0, i);
 	}
 
-	/** *  Only to be instantiated by {@link PlatformUtils#createInstance()}. */
+	/**
+	 *  Only to be instantiated by {@link PlatformUtils#createInstance()}.
+	 */
 	public WindowsUtils() {
-		Charset windowsConsole;
-		try {
-			windowsConsole = Charset.forName("cp" + getOEMCP());
-		} catch (Exception e) {
-			windowsConsole = Charset.defaultCharset();
-		}
-		consoleCharset = windowsConsole;
 		setVLCRegistryInfo();
 		avsPluginsFolder = getAviSynthPluginsFolder();
 		aviSynth = avsPluginsFolder != null;
@@ -316,7 +321,7 @@ public class WindowsUtils extends PlatformUtils {
 			}
 			if (OS_VERSION.isGreaterThanOrEqualTo("5.1.0")) {
 				try {
-					String command = "reg query \"HKU\\S-1-5-19\"";
+					String[] command = {"reg", "query", "\"HKU\\S-1-5-19\""};
 					Process p = Runtime.getRuntime().exec(command);
 					p.waitFor();
 					int exitValue = p.exitValue();
@@ -327,9 +332,12 @@ public class WindowsUtils extends PlatformUtils {
 					}
 
 					isAdmin = false;
-				} catch (IOException | InterruptedException e) {
+				} catch (IOException e) {
 					isAdmin = false;
 					LOGGER.error("An error prevented UMS from checking Windows permissions: {}", e.getMessage());
+				} catch (InterruptedException e) {
+					isAdmin = false;
+					Thread.currentThread().interrupt();
 				}
 			} else {
 				isAdmin = true;
@@ -344,12 +352,23 @@ public class WindowsUtils extends PlatformUtils {
 			if (defaultFolders == null) {
 				// Lazy initialization
 				List<Path> result = new ArrayList<>();
+				//if Windows Vista or newer
 				if (OS_VERSION.isGreaterThanOrEqualTo("6.0.0")) {
-					List<GUID> knownFolders = List.of(
-						KnownFolders.FOLDERID_MUSIC,
-						KnownFolders.FOLDERID_PICTURES,
-						KnownFolders.FOLDERID_VIDEOS
-					);
+					List<GUID> knownFolders;
+					if (UmsConfiguration.isUserProfile()) {
+						knownFolders = List.of(
+							KnownFolders.FOLDERID_MUSIC,
+							KnownFolders.FOLDERID_PICTURES,
+							KnownFolders.FOLDERID_VIDEOS
+						);
+					} else {
+						knownFolders = List.of(
+							KnownFolders.FOLDERID_PUBLIC_MUSIC,
+							KnownFolders.FOLDERID_PUBLIC_PICTURES,
+							KnownFolders.FOLDERID_PUBLIC_VIDEOS
+						);
+					}
+
 					for (GUID guid : knownFolders) {
 						Path folder = getWindowsKnownFolder(guid);
 						if (folder != null) {
@@ -357,13 +376,14 @@ public class WindowsUtils extends PlatformUtils {
 						}
 					}
 				} else {
+					//Windows XP
 					CSIDL[] csidls = {
 						CSIDL.CSIDL_MYMUSIC,
 						CSIDL.CSIDL_MYPICTURES,
 						CSIDL.CSIDL_MYVIDEO
 					};
 					for (CSIDL csidl : csidls) {
-						Path folder = getWindowsFolder(csidl);
+						Path folder = CSIDL.getWindowsFolder(csidl);
 						if (folder != null) {
 							result.add(folder);
 						}
@@ -391,7 +411,7 @@ public class WindowsUtils extends PlatformUtils {
 
 	@Override
 	public String getiTunesFile() throws IOException {
-		Process process = Runtime.getRuntime().exec("reg query \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders\" /v \"My Music\"");
+		Process process = Runtime.getRuntime().exec(new String[]{"reg", "query", "\"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders\"", "/v", "\"My Music\""});
 		String location = null;
 		//TODO The encoding of the output from reg query is unclear, this must be investigated further
 		try (BufferedReader in = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
@@ -412,11 +432,6 @@ public class WindowsUtils extends PlatformUtils {
 			LOGGER.info("Could not find the My Music folder");
 		}
 		return null;
-	}
-
-	@Override
-	public Charset getDefaultCharset() {
-		return consoleCharset;
 	}
 
 	@Override
@@ -488,11 +503,6 @@ public class WindowsUtils extends PlatformUtils {
 		}
 	}
 
-	@Override
-	protected String getTrayIcon() {
-		return "icon-16.png";
-	}
-
 	private void setVLCRegistryInfo() {
 		String key = "SOFTWARE\\VideoLAN\\VLC";
 		try {
@@ -511,8 +521,8 @@ public class WindowsUtils extends PlatformUtils {
 	}
 
 	@Override
-	public String getShutdownCommand() {
-		return "shutdown.exe -s -t 0";
+	public String[] getShutdownCommand() {
+		return new String[]{"shutdown.exe", "-s", "-t", "0"};
 	}
 
 	@Override
@@ -598,35 +608,6 @@ public class WindowsUtils extends PlatformUtils {
 			LOGGER.debug("Default folder \"{}\" not found: {}", guid, e.getMessage());
 		} catch (InvalidPathException e) {
 			LOGGER.error("Unexpected error while resolving default Windows folder with GUID {}: {}", guid, e.getMessage());
-			LOGGER.trace("", e);
-		}
-		return null;
-	}
-
-	@Nullable
-	private static Path getWindowsFolder(@Nullable CSIDL csidl) {
-		if (csidl == null) {
-			return null;
-		}
-		try {
-			String folderPath = Shell32Util.getFolderPath(csidl.getValue());
-			if (StringUtils.isNotBlank(folderPath)) {
-				Path folder = Paths.get(folderPath);
-				FilePermissions permissions;
-				try {
-					permissions = new FilePermissions(folder);
-					if (permissions.isBrowsable()) {
-						return folder;
-					}
-					LOGGER.warn("Insufficient permissions to read default folder \"{}\"", csidl);
-				} catch (FileNotFoundException e) {
-					LOGGER.debug("Default folder \"{}\" not found", folder);
-				}
-			}
-		} catch (Win32Exception e) {
-			LOGGER.debug("Default folder \"{}\" not found: {}", csidl, e.getMessage());
-		} catch (InvalidPathException e) {
-			LOGGER.error("Unexpected error while resolving default Windows folder with id {}: {}", csidl, e.getMessage());
 			LOGGER.trace("", e);
 		}
 		return null;
