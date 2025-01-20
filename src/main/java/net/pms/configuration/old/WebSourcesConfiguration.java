@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.Objects;
 import net.pms.PMS;
 import net.pms.configuration.UmsConfiguration;
-import net.pms.dlna.Feed;
+import net.pms.store.container.Feed;
 import net.pms.util.FileUtil;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -43,6 +43,12 @@ public class WebSourcesConfiguration {
 	private static final UmsConfiguration CONFIGURATION = PMS.getConfiguration();
 	private static final String KEY_WEB_CONF_PATH = "web_conf";
 	private static final String DEFAULT_WEB_CONF_FILENAME = "WEB.conf";
+
+	/**
+	 * This class is not meant to be instantiated.
+	 */
+	private WebSourcesConfiguration() {
+	}
 
 	/**
 	 * This parses the web config and return WebSource's List.
@@ -74,7 +80,7 @@ public class WebSourcesConfiguration {
 								sourceType.equals("videostream")
 							) {
 								String[] values = parseFeedValue(value);
-								String uri = values[0];
+								String uri = Feed.getFeedUrl(values[0]);
 								String thumbnail = values.length > 2 ? values[2] : null;
 								// If the resource does not yet have a name, attempt to get one now
 								String resourceName = values.length > 3 ? values[3] : null;
@@ -82,10 +88,6 @@ public class WebSourcesConfiguration {
 									try {
 										switch (sourceType) {
 											case "imagefeed", "videofeed", "audiofeed" -> {
-												// Convert YouTube channel URIs to their feed URIs
-												if (uri.contains("youtube.com/channel/")) {
-													uri = uri.replaceAll("youtube.com/channel/", "youtube.com/feeds/videos.xml?channel_id=");
-												}
 												resourceName = Feed.getFeedTitle(uri);
 											}
 											case "videostream", "audiostream" -> {

@@ -16,16 +16,14 @@
  */
 package net.pms.image;
 
-import java.awt.color.ColorSpace;
-import java.awt.image.ColorModel;
-import net.pms.util.ParseException;
 import com.drew.metadata.Directory;
 import com.drew.metadata.Metadata;
 import com.drew.metadata.photoshop.PsdHeaderDirectory;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.awt.color.ColorSpace;
+import java.awt.image.ColorModel;
+import net.pms.util.ParseException;
 
 @SuppressWarnings("serial")
-@SuppressFBWarnings("SE_NO_SERIALVERSIONID")
 public class PSDInfo extends ImageInfo {
 	protected final ColorMode colorMode;
 	protected final Integer channelCount;
@@ -133,7 +131,6 @@ public class PSDInfo extends ImageInfo {
 		return new PSDParseInfo();
 	}
 
-	@SuppressFBWarnings("SF_SWITCH_NO_DEFAULT")
 	@Override
 	protected void parseMetadata(Metadata metadata) {
 		if (metadata == null) {

@@ -16,6 +16,11 @@
  */
 package net.pms.configuration;
 
+import ch.qos.logback.classic.Level;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
+import com.sun.jna.Platform;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -39,23 +44,8 @@ import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.commons.configuration.Configuration;
-import org.apache.commons.configuration.ConfigurationException;
-import org.apache.commons.configuration.PropertiesConfiguration;
-import org.apache.commons.configuration.event.ConfigurationListener;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
-import com.sun.jna.Platform;
-import ch.qos.logback.classic.Level;
 import net.pms.Messages;
 import net.pms.PMS;
-import net.pms.dlna.CodeEnter;
 import net.pms.encoders.Engine;
 import net.pms.encoders.EngineFactory;
 import net.pms.encoders.EngineId;
@@ -71,6 +61,8 @@ import net.pms.renderers.ConnectedRenderers;
 import net.pms.service.Services;
 import net.pms.service.sleep.PreventSleepMode;
 import net.pms.service.sleep.SleepManager;
+import net.pms.store.container.CodeEnter;
+import net.pms.store.utils.StoreResourceSorter;
 import net.pms.util.CoverSupplier;
 import net.pms.util.ExternalProgramInfo;
 import net.pms.util.FilePermissions;
@@ -78,18 +70,29 @@ import net.pms.util.FileUtil;
 import net.pms.util.FileUtil.FileLocation;
 import net.pms.util.FullyPlayedAction;
 import net.pms.util.InvalidArgumentException;
-import net.pms.util.IpFilter;
 import net.pms.util.Languages;
 import net.pms.util.LogSystemInformationMode;
 import net.pms.util.ProgramExecutableType;
 import net.pms.util.PropertiesUtil;
+import net.pms.util.PropertiesWrapper;
 import net.pms.util.StringUtil;
 import net.pms.util.SubtitleColor;
 import net.pms.util.UMSUtils;
 import net.pms.util.UniqueList;
+import org.apache.commons.configuration.Configuration;
+import org.apache.commons.configuration.ConfigurationException;
+import org.apache.commons.configuration.PropertiesConfiguration;
+import org.apache.commons.configuration.event.ConfigurationListener;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * Container for all configurable UMS settings. Settings are typically defined by three things:
+ * Container for all configurable UMS settings.
+ * <p>
+ * Settings are typically defined by three things:
  * a unique key for use in the configuration file "UMS.conf", a getter (and setter) method and
  * a default value. When a key cannot be found in the current configuration, the getter will
  * return a default value. Setters only store a value, they do not permanently save it to
@@ -109,10 +112,12 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final int LOGGING_LOGS_TAB_LINEBUFFER_MIN = 100;
 	private static final int LOGGING_LOGS_TAB_LINEBUFFER_STEP = 500;
 	private static final String DEFAULT_PROFILE_FILENAME = "UMS.conf";
-	private static final String PROPERTY_PROFILE_PATH = "ums.profile.path";
 	private static final String ENV_PROFILE_PATH = "UMS_PROFILE";
 	private static final String DEFAULT_SHARED_CONF_FILENAME = "SHARED.conf";
 	private static final String DEFAULT_CREDENTIALS_FILENAME = "UMS.cred";
+	private static final String PORTABLE_PATH = "portable";
+	public static final String PROPERTY_PROFILE_PATH = "ums.profile.path";
+
 	/*
 	 * MEncoder has a hardwired maximum of 8 threads for -lavcopts and 16
 	 * for -lavdopts.
@@ -202,7 +207,13 @@ public class UmsConfiguration extends BaseConfiguration {
 	// "project.skelprofile.dir" project property
 	private static final String SKEL_PROFILE_PATH;
 
-	private static final String SYSTEM_PROFILE_DIRECTORY;
+	/*Profile type : 0
+		0 : System
+		1 : User
+		2 : Portable
+		3 : Custom
+	 */
+	private static final int PROFILE_TYPE;
 
 	/*
 	 * Configuration file keys
@@ -210,6 +221,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_3D_SUBTITLES_DEPTH = "3d_subtitles_depth";
 	private static final String KEY_ALTERNATE_SUBTITLES_FOLDER = "alternate_subtitles_folder";
 	private static final String KEY_ALTERNATE_THUMB_FOLDER = "alternate_thumb_folder";
+	private static final String KEY_ANONYMOUS_DEVICES_WRITE = "anonymous_devices_write";
 	private static final String KEY_APPEND_PROFILE_NAME = "append_profile_name";
 	private static final String KEY_ATZ_LIMIT = "atz_limit";
 	private static final String KEY_AUTOMATIC_DISCOVER = "automatic_discover";
@@ -218,7 +230,6 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_AUDIO_CHANNEL_COUNT = "audio_channels";
 	private static final String KEY_AUDIO_EMBED_DTS_IN_PCM = "audio_embed_dts_in_pcm";
 	private static final String KEY_AUDIO_LANGUAGES = "audio_languages";
-	private static final String KEY_AUDIO_LIKES_IN_ROOT_FOLDER = "audio_likes_visible_root";
 	private static final String KEY_AUDIO_REMUX_AC3 = "audio_remux_ac3";
 	private static final String KEY_AUDIO_RESAMPLE = "audio_resample";
 	private static final String KEY_AUDIO_SUB_LANGS = "audio_subtitles_languages";
@@ -238,7 +249,8 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_ASS_OUTLINE = "subtitles_ass_outline";
 	private static final String KEY_ASS_SCALE = "subtitles_ass_scale";
 	private static final String KEY_ASS_SHADOW = "subtitles_ass_shadow";
-	private static final String KEY_API_KEY = "api_key";
+	private static final String KEY_BLOCK_NETWORK_DEVICES_BY_DEFAULT = "block_network_devices_by_default";
+	private static final String KEY_BLOCK_RENDERERS_BY_DEFAULT = "block_renderers_by_default";
 	private static final String KEY_CHAPTER_INTERVAL = "chapter_interval";
 	private static final String KEY_CHAPTER_SUPPORT = "chapter_support";
 	private static final String KEY_CHROMECAST_DBG = "chromecast_debug";
@@ -247,7 +259,6 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_CODE_THUMBS = "code_show_thumbs_no_code";
 	private static final String KEY_CODE_TMO = "code_valid_timeout";
 	private static final String KEY_CODE_USE = "code_enable";
-	private static final String KEY_SORT_AUDIO_TRACKS_BY_ALBUM_POSITION = "sort_audio_tracks_by_album_position";
 	private static final String KEY_DATABASE_MEDIA_CACHE_SIZE_KB = "database_media_cache_size";
 	private static final String KEY_DATABASE_MEDIA_USE_CACHE_SOFT = "database_media_use_cache_soft";
 	private static final String KEY_DATABASE_MEDIA_USE_MEMORY_INDEXES = "database_media_use_memory_indexes";
@@ -309,8 +320,6 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_IGNORE_THE_WORD_A_AND_THE = "ignore_the_word_a_and_the";
 	private static final String KEY_IMAGE_THUMBNAILS_ENABLED = "image_thumbnails";
 	private static final String KEY_INFO_DB_RETRY = "infodb_retry";
-	private static final String KEY_IP_FILTER = "ip_filter";
-	private static final String KEY_ITUNES_LIBRARY_PATH = "itunes_library_path";
 	private static final String KEY_JWT_SIGNER_SECRET = "jwt_secret";
 	private static final String KEY_LANGUAGE = "language";
 	private static final String KEY_LIVE_SUBTITLES_KEEP = "live_subtitles_keep";
@@ -326,7 +335,6 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_LOGGING_SYSLOG_PORT = "logging_syslog_port";
 	private static final String KEY_LOGGING_USE_SYSLOG = "logging_use_syslog";
 	private static final String KEY_LOG_DATABASE = "log_database";
-	private static final String KEY_MANAGED_PLAYLIST_FOLDER = "managed_playlist_folder";
 	private static final String KEY_MAX_AUDIO_BUFFER = "maximum_audio_buffer_size";
 	private static final String KEY_MAX_BITRATE = "maximum_bitrate";
 	private static final String KEY_MAX_MEMORY_BUFFER_SIZE = "maximum_video_buffer_size";
@@ -359,13 +367,14 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_MIN_MEMORY_BUFFER_SIZE = "minimum_video_buffer_size";
 	private static final String KEY_MIN_PLAY_TIME = "minimum_watched_play_time";
 	private static final String KEY_MIN_PLAY_TIME_FILE = "min_playtime_file";
-	private static final String KEY_MIN_PLAY_TIME_WEB = "min_playtime_web";
 	private static final String KEY_MIN_STREAM_BUFFER = "minimum_web_buffer_size";
 	private static final String KEY_MINIMIZED = "minimized";
 	private static final String KEY_MPEG2_MAIN_SETTINGS = "mpeg2_main_settings";
 	private static final String KEY_MUX_ALLAUDIOTRACKS = "tsmuxer_mux_all_audiotracks";
 	private static final String KEY_NETWORK_DEVICES_FILTER = "network_devices_filter";
 	private static final String KEY_NETWORK_INTERFACE = "network_interface";
+	private static final String KEY_NEXTCP_API_KEY = "nextcp_api_key";
+	private static final String KEY_NEXTCP_AUDIO_LIKES_IN_ROOT_FOLDER = "audio_likes_visible_root";
 	private static final String KEY_NUMBER_OF_CPU_CORES = "number_of_cpu_cores";
 	private static final String KEY_OPEN_ARCHIVES = "enable_archive_browsing";
 	private static final String KEY_OVERSCAN = "mencoder_overscan";
@@ -377,6 +386,8 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_PROFILE_NAME = "name";
 	private static final String KEY_RENDERER_DEFAULT = "renderer_default";
 	private static final String KEY_RENDERER_FORCE_DEFAULT = "renderer_force_default";
+	private static final String KEY_RENDERERS_FILTER = "renderers_filter";
+	private static final String KEY_RENDERERS_USER = "renderers_user";
 	private static final String KEY_RESUME = "resume";
 	private static final String KEY_RESUME_BACK = "resume_back";
 	private static final String KEY_RESUME_KEEP_TIME = "resume_keep_time";
@@ -390,25 +401,22 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_SEARCH_RECURSE = "search_recurse"; // legacy option
 	private static final String KEY_SEARCH_RECURSE_DEPTH = "search_recurse_depth";
 	private static final String KEY_SELECTED_RENDERERS = "selected_renderers";
-	private static final String KEY_SERVER_ENGINE = "server_engine";
 	private static final String KEY_SERVER_HOSTNAME = "hostname";
 	private static final String KEY_SERVER_NAME = "server_name";
 	private static final String KEY_SERVER_PORT = "port";
 	private static final String KEY_SHARED_CONF_PATH = "shared_conf";
-	private static final String KEY_SHARES = "shares";
-	private static final String KEY_SHOW_APERTURE_LIBRARY = "show_aperture_library";
 	private static final String KEY_SHOW_INFO_ABOUT_AUTOMATIC_VIDEO_SETTING = "show_info";
-	private static final String KEY_SHOW_IPHOTO_LIBRARY = "show_iphoto_library";
-	private static final String KEY_SHOW_ITUNES_LIBRARY = "show_itunes_library";
 	private static final String KEY_SHOW_LIVE_SUBTITLES_FOLDER = "show_live_subtitles_folder";
 	private static final String KEY_SHOW_MEDIA_LIBRARY_FOLDER = "show_media_library_folder";
 	private static final String KEY_SHOW_RECENTLY_PLAYED_FOLDER = "show_recently_played_folder";
 	private static final String KEY_SHOW_SERVER_SETTINGS_FOLDER = "show_server_settings_folder";
 	private static final String KEY_SHOW_SPLASH_SCREEN = "show_splash_screen";
 	private static final String KEY_SHOW_TRANSCODE_FOLDER = "show_transcode_folder";
+	private static final String KEY_SHOW_USER_CHOICE = "show_user_choice";
 	private static final String KEY_SINGLE = "single_instance";
 	private static final String KEY_SKIP_LOOP_FILTER_ENABLED = "mencoder_skip_loop_filter";
 	private static final String KEY_SKIP_NETWORK_INTERFACES = "skip_network_interfaces";
+	private static final String KEY_SORT_AUDIO_TRACKS_BY_ALBUM_POSITION = "sort_audio_tracks_by_album_position";
 	private static final String KEY_SORT_METHOD = "sort_method";
 	private static final String KEY_SORT_PATHS = "sort_paths";
 	private static final String KEY_SPEED_DBG = "speed_debug";
@@ -420,17 +428,20 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_TEMP_FOLDER_PATH = "temp_directory";
 	private static final String KEY_THUMBNAIL_GENERATION_ENABLED = "generate_thumbnails";
 	private static final String KEY_THUMBNAIL_SEEK_POS = "thumbnail_seek_position";
+	private static final String KEY_TMDB_API_KEY = "tmdb_api_key";
 	private static final String KEY_TRANSCODE_BLOCKS_MULTIPLE_CONNECTIONS = "transcode_block_multiple_connections";
 	private static final String KEY_TRANSCODE_FOLDER_NAME = "transcode_folder_name";
 	private static final String KEY_TRANSCODE_KEEP_FIRST_CONNECTION = "transcode_keep_first_connection";
 	private static final String KEY_TSMUXER_FORCEFPS = "tsmuxer_forcefps";
 	private static final String KEY_UPNP_ALIVE_DELAY = "upnp_alive_delay";
-	private static final String KEY_UPNP_DEBUG = "upnp_debug";
+	private static final String KEY_UPNP_CDS_WRITE = "upnp_cds_write";
 	private static final String KEY_UPNP_ENABLED = "upnp_enable";
+	private static final String KEY_UPNP_JUPNP_DIDL = "upnp_jupnp_didl";
+	public static final String KEY_UPNP_LOG_LEVEL = "upnp_log_level";
 	private static final String KEY_UPNP_PORT = "upnp_port";
-	private static final String KEY_USE_CACHE = "use_cache";
 	private static final String KEY_USE_EMBEDDED_SUBTITLES_STYLE = "use_embedded_subtitles_style";
-	private static final String KEY_USE_IMDB_INFO = "use_imdb_info";
+	private static final String KEY_USE_API_INFO = "use_api_info";
+	private static final String KEY_USE_TMDB_INFO = "use_tmdb_info";
 	private static final String KEY_USE_MPLAYER_FOR_THUMBS = "use_mplayer_for_video_thumbs";
 	private static final String KEY_USE_SYMLINKS_TARGET_FILE = "use_symlinks_target_file";
 	private static final String KEY_UUID = "uuid";
@@ -445,7 +456,6 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_WAS_YOUTUBE_DL_ENABLED_ONCE = "was_youtube_dl_enabled_once";
 	private static final String KEY_WEB_GUI_ON_START = "web_gui_on_start";
 	private static final String KEY_WEB_GUI_PORT = "web_gui_port";
-	private static final String KEY_WEB_LOW_SPEED = "web_low_speed";
 	private static final String KEY_WEB_PATH = "web_path";
 	private static final String KEY_WEB_PLAYER_AUTH = "web_player_auth";
 	private static final String KEY_WEB_PLAYER_CONT_AUDIO = "web_player_continue_audio";
@@ -465,33 +475,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	private static final String KEY_WEB_PLAYER_SUB_LANG = "web_use_browser_sub_lang";
 	private static final String KEY_WEB_PLAYER_SUBS_TRANS = "web_subtitles_transcoded";
 	private static final String KEY_WEB_THREADS = "web_threads";
-	private static final String KEY_WEB_TRANSCODE = "web_transcode";
 	private static final String KEY_X264_CONSTANT_RATE_FACTOR = "x264_constant_rate_factor";
-
-	/**
-	 * Old Web interface stuff
-	 */
-	// TODO: remove on old player removal
-	@Deprecated
-	private static final String KEY_WEB_AUTHENTICATE = "web_authenticate";
-	@Deprecated
-	private static final String KEY_BUMP_ADDRESS = "bump";
-	@Deprecated
-	private static final String KEY_BUMP_IPS = "allowed_bump_ips";
-	@Deprecated
-	private static final String KEY_BUMP_JS = "bump.js";
-	@Deprecated
-	private static final String KEY_BUMP_SKIN_DIR = "bump.skin";
-	@Deprecated
-	private static final String KEY_WEB_BROWSE_LANG = "web_use_browser_lang";
-	@Deprecated
-	private static final String KEY_WEB_FLASH = "web_flash";
-	@Deprecated
-	private static final String KEY_WEB_HEIGHT = "web_height";
-	@Deprecated
-	private static final String KEY_WEB_SIZE = "web_size";
-	@Deprecated
-	private static final String KEY_WEB_WIDTH = "web_width";
 
 	/**
 	 * The map of keys that need to be refactored.
@@ -511,7 +495,11 @@ public class UmsConfiguration extends BaseConfiguration {
 		new AbstractMap.SimpleEntry<>("web_loop_video", KEY_WEB_PLAYER_LOOP_VIDEO),
 		//since 11.6
 		new AbstractMap.SimpleEntry<>("fmpeg_sox", KEY_FFMPEG_SOX),
-		new AbstractMap.SimpleEntry<>("ALIVE_delay", KEY_UPNP_ALIVE_DELAY)
+		new AbstractMap.SimpleEntry<>("ALIVE_delay", KEY_UPNP_ALIVE_DELAY),
+		//since 14
+		new AbstractMap.SimpleEntry<>("api_key", KEY_NEXTCP_API_KEY),
+		//since 14.7
+		new AbstractMap.SimpleEntry<>("use_imdb_info", KEY_USE_API_INFO)
 	);
 
 	/**
@@ -526,7 +514,23 @@ public class UmsConfiguration extends BaseConfiguration {
 		"media_lib_sort",			//not used
 		"no_shared",				//not used
 		"plugin_purge",				//not used
-		"proxy"						//not used
+		"proxy",					//not used
+		"ip_filter",				//old ip filter
+		"web_transcode",			//old player
+		"web_low_speed",			//old player
+		"web_use_browser_lang",		//old player
+		"web_authenticate",			//old player
+		"allowed_bump_ips",			//old player
+		"web_flash",				//old player
+		"web_height",				//old player
+		"web_size",					//old player
+		"web_width",				//old player
+		"bump.js",					//old player
+		"bump.skin",				//old player
+		"min_playtime_web",			//old player
+		"bump",						//old player
+		"shares",					//not used
+		"server_engine"				//no more multiple engines
 	);
 
 	/**
@@ -536,7 +540,6 @@ public class UmsConfiguration extends BaseConfiguration {
 	public static final Set<String> NEED_MEDIA_SERVER_RELOAD_FLAGS = Set.of(
 		KEY_CHROMECAST_EXT,
 		KEY_NETWORK_INTERFACE,
-		KEY_SERVER_ENGINE,
 		KEY_SERVER_HOSTNAME,
 		KEY_SERVER_PORT,
 		KEY_UPNP_ENABLED
@@ -571,72 +574,124 @@ public class UmsConfiguration extends BaseConfiguration {
 	);
 
 	/**
-	 * The set of keys defining when the media library has to reset due to a
-	 * configuration change.
-	 *
-	 * It will need a renderers reload as renderers build from it.
+	 * The set of keys defining when the server language was changed.
 	 */
-	public static final Set<String> NEED_MEDIA_LIBRARY_RELOAD_FLAGS = Set.of(
-		KEY_FULLY_PLAYED_ACTION,
-		KEY_SHOW_RECENTLY_PLAYED_FOLDER,
-		KEY_USE_CACHE
+	public static final Set<String> LANGUAGE_CHANGED = Set.of(
+		KEY_LANGUAGE
 	);
 
 	/**
-	 * The set of keys defining when the renderers has to rebuild their root folder
+	 * The set of keys defining when the renderers has to rebuild their media store
 	 * due to a configuration change.
 	 */
-	public static final Set<String> NEED_RENDERERS_ROOT_RELOAD_FLAGS = Set.of(
+	public static final Set<String> NEED_RENDERERS_MEDIA_STORE_RELOAD_FLAGS = Set.of(
 		KEY_ATZ_LIMIT,
 		KEY_AUDIO_THUMBNAILS_METHOD,
 		KEY_CHAPTER_SUPPORT,
 		KEY_DISABLE_TRANSCODE_FOR_EXTENSIONS,
 		KEY_DISABLE_TRANSCODING,
 		KEY_FORCE_TRANSCODE_FOR_EXTENSIONS,
+		KEY_FULLY_PLAYED_ACTION,
 		KEY_HIDE_EMPTY_FOLDERS,
 		KEY_OPEN_ARCHIVES,
 		KEY_PRETTIFY_FILENAMES,
-		KEY_SHOW_APERTURE_LIBRARY,
-		KEY_SHOW_IPHOTO_LIBRARY,
-		KEY_SHOW_ITUNES_LIBRARY,
 		KEY_SHOW_LIVE_SUBTITLES_FOLDER,
 		KEY_SHOW_MEDIA_LIBRARY_FOLDER,
+		KEY_SHOW_RECENTLY_PLAYED_FOLDER,
 		KEY_SHOW_SERVER_SETTINGS_FOLDER,
 		KEY_SHOW_TRANSCODE_FOLDER,
 		KEY_SORT_METHOD
 	);
 
-	static {
-		// first of all, set up the path to the default system profile directory
-		if (Platform.isWindows()) {
-			String programData = System.getenv("ALLUSERSPROFILE");
+	/**
+	 * The set of keys that is array of values.
+	 */
+	public static final Set<String> ARRAY_KEYS = Set.of(
+		KEY_ENGINES,
+		KEY_ENGINES_PRIORITY,
+		KEY_SELECTED_RENDERERS,
+		KEY_FFMPEG_AVAILABLE_GPU_ACCELERATION_METHODS,
+		KEY_SKIP_NETWORK_INTERFACES,
+		KEY_FOLDER_NAMES_IGNORED
+	);
 
+	/**
+	 * The set of keys that is selectable value.
+	 */
+	public static final Set<String> SELECT_KEYS = Set.of(
+		KEY_AUDIO_THUMBNAILS_METHOD,
+		KEY_FFMPEG_AVISYNTH_OUTPUT_FORMAT_3D,
+		KEY_FFMPEG_AVISYNTH_CONVERSION_ALGORITHM_2D_TO_3D,
+		KEY_FFMPEG_AVISYNTH_HORIZONTAL_RESIZE_RESOLUTION,
+		KEY_SORT_METHOD,
+		KEY_UPNP_LOG_LEVEL
+	);
+
+	/**
+	 * The set of keys that is valid with empty value.
+	 */
+	public static final List<String> VALID_EMPTY_KEYS = List.of(
+		KEY_ALTERNATE_THUMB_FOLDER,
+		KEY_SERVER_HOSTNAME,
+		KEY_NETWORK_INTERFACE,
+		KEY_SERVER_PORT,
+		KEY_RENDERER_DEFAULT,
+		KEY_WEB_GUI_PORT,
+		KEY_WEB_PLAYER_PORT
+	);
+
+	static {
+		int systemProfileType = 0;
+		String systemProfileDirectoryPath = null;
+		// first of all, set up the path to the default system profile directory
+		File systemConfigDirectory = new File(new File("").getAbsolutePath(), PORTABLE_PATH);
+		if (systemConfigDirectory.exists() && systemConfigDirectory.isDirectory()) {
+			systemProfileDirectoryPath = systemConfigDirectory.getAbsolutePath();
+			systemProfileType = 2; //portable
+		} else if (Platform.isWindows()) {
+			//check user only set up
+			String programData = System.getenv("LOCALAPPDATA");
 			if (programData != null) {
-				SYSTEM_PROFILE_DIRECTORY = String.format("%s\\%s", programData, PROFILE_DIRECTORY_NAME);
-			} else {
-				SYSTEM_PROFILE_DIRECTORY = ""; // i.e. current (working) directory
+				systemProfileDirectoryPath = String.format("%s\\%s", programData, PROFILE_DIRECTORY_NAME);
+				systemConfigDirectory = new File(systemProfileDirectoryPath);
+				if (systemConfigDirectory.exists() && systemConfigDirectory.isDirectory()) {
+					systemProfileType = 1; //user
+				} else {
+					systemProfileDirectoryPath = null;
+				}
+			}
+			if (systemProfileDirectoryPath == null) {
+				//check all user set up
+				programData = System.getenv("ALLUSERSPROFILE");
+				if (programData != null) {
+					systemProfileDirectoryPath = String.format("%s\\%s", programData, PROFILE_DIRECTORY_NAME);
+				} else {
+					systemProfileDirectoryPath = ""; // i.e. current (working) directory
+				}
+				systemProfileType = 0; //system
 			}
 		} else if (Platform.isMac()) {
-			SYSTEM_PROFILE_DIRECTORY = String.format(
+			systemProfileDirectoryPath = String.format(
 				"%s/%s/%s",
 				System.getProperty("user.home"),
 				"/Library/Application Support",
 				PROFILE_DIRECTORY_NAME
 			);
+			systemProfileType = 1; //user
 		} else {
 			String xdgConfigHome = System.getenv("XDG_CONFIG_HOME");
 
 			if (xdgConfigHome == null) {
-				SYSTEM_PROFILE_DIRECTORY = String.format("%s/.config/%s", System.getProperty("user.home"), PROFILE_DIRECTORY_NAME);
+				systemProfileDirectoryPath = String.format("%s/.config/%s", System.getProperty("user.home"), PROFILE_DIRECTORY_NAME);
 			} else {
-				SYSTEM_PROFILE_DIRECTORY = String.format("%s/%s", xdgConfigHome, PROFILE_DIRECTORY_NAME);
+				systemProfileDirectoryPath = String.format("%s/%s", xdgConfigHome, PROFILE_DIRECTORY_NAME);
 			}
+			systemProfileType = 1; //user
 		}
-
-		// ensure that the SYSTEM_PROFILE_DIRECTORY exists
-		File systemProfileDirectory = new File(SYSTEM_PROFILE_DIRECTORY);
-		if (!systemProfileDirectory.exists()) {
-			systemProfileDirectory.mkdirs();
+		// ensure that the systemProfileDirectoryPath exists
+		systemConfigDirectory = new File(systemProfileDirectoryPath);
+		if (!systemConfigDirectory.exists()) {
+			systemConfigDirectory.mkdirs();
 		}
 
 		// now set the profile path. first: check for a custom setting.
@@ -651,27 +706,39 @@ public class UmsConfiguration extends BaseConfiguration {
 		// if customProfilePath is still blank, the default profile dir/filename is used
 		FileLocation profileLocation = FileUtil.getFileLocation(
 			customProfilePath,
-			SYSTEM_PROFILE_DIRECTORY,
+			systemProfileDirectoryPath,
 			DEFAULT_PROFILE_FILENAME
 		);
 		PROFILE_PATH = profileLocation.getFilePath();
 		PROFILE_DIRECTORY = profileLocation.getDirectoryPath();
+		PROFILE_TYPE = profileLocation.isCustom() ? 3 : systemProfileType;
 
 		// Set SKEL_PROFILE_PATH for Linux systems
-		String skelDir = PropertiesUtil.getProjectProperties().get("project.skelprofile.dir");
-		if (Platform.isLinux() && StringUtils.isNotBlank(skelDir)) {
-			SKEL_PROFILE_PATH = FilenameUtils.normalize(
-				new File(
+		PropertiesWrapper projectProperties = PropertiesUtil.getProjectProperties();
+		if (projectProperties != null) {
+			String skelDir = projectProperties.get("project.skelprofile.dir");
+			if (Platform.isLinux() && StringUtils.isNotBlank(skelDir)) {
+				SKEL_PROFILE_PATH = FilenameUtils.normalize(
 					new File(
-						skelDir,
-						PROFILE_DIRECTORY_NAME
-					).getAbsolutePath(),
-					DEFAULT_PROFILE_FILENAME
-				).getAbsolutePath()
-			);
+						new File(
+							skelDir,
+							PROFILE_DIRECTORY_NAME
+						).getAbsolutePath(),
+						DEFAULT_PROFILE_FILENAME
+					).getAbsolutePath()
+				);
+			} else {
+				SKEL_PROFILE_PATH = null;
+			}
 		} else {
 			SKEL_PROFILE_PATH = null;
 		}
+		long usableMemory = (Runtime.getRuntime().maxMemory() / 1048576) - BUFFER_MEMORY_FACTOR;
+		if (usableMemory > MAX_MAX_MEMORY_DEFAULT_SIZE) {
+			maxMaxMemoryBufferSize = (int) usableMemory;
+		}
+		// Set DEFAULT_AVI_SYNTH_SCRIPT according to language
+		defaultAviSynthScript = "<movie>\n<sub>\n";
 	}
 
 	// Path to default logfile directory
@@ -684,10 +751,9 @@ public class UmsConfiguration extends BaseConfiguration {
 	private final PlatformProgramPaths programPaths;
 
 	protected TempFolder tempFolder;
-	protected IpFilter filter;
 
 	/**
-	 * Default constructor that will attempt to load the PMS configuration file
+	 * Default constructor that will attempt to load the UMS configuration file
 	 * from the profile path.
 	 *
 	 * @throws org.apache.commons.configuration.ConfigurationException
@@ -698,9 +764,9 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Constructor that will initialize the PMS configuration.
+	 * Constructor that will initialize the UMS configuration.
 	 *
-	 * @param loadFile Set to true to attempt to load the PMS configuration
+	 * @param loadFile Set to true to attempt to load the UMS configuration
 	 *                 file from the profile path. Set to false to skip
 	 *                 loading.
 	 * @throws ConfigurationException
@@ -739,32 +805,21 @@ public class UmsConfiguration extends BaseConfiguration {
 				configuration.clearProperty(refactoredKey.getKey());
 			}
 		}
-		/**
-		 * This block is to recover old settings from v13 because of an accidental
-		 * code merge from the v14 branch, which got released in 13.7.0-13.8.1.
-		 */
-		String networkDevicesFilter = getString(KEY_NETWORK_DEVICES_FILTER, null);
-		if (StringUtils.isNotBlank(networkDevicesFilter)) {
-			configuration.setProperty("ip_filter", networkDevicesFilter);
-			configuration.clearProperty(KEY_NETWORK_DEVICES_FILTER);
+		//keep ip_filter if it was presents
+		String oldIpFilter = getString("ip_filter", null);
+		if (StringUtils.isNotBlank(oldIpFilter)) {
+			configuration.setProperty(KEY_BLOCK_NETWORK_DEVICES_BY_DEFAULT, true);
+			configuration.setProperty(KEY_NETWORK_DEVICES_FILTER, oldIpFilter);
+			configuration.clearProperty("ip_filter");
 		}
 		for (String removedKey : REMOVED_KEYS) {
 			configuration.clearProperty(removedKey);
 		}
 		tempFolder = new TempFolder(getString(KEY_TEMP_FOLDER_PATH, null));
 		programPaths = new ConfigurableProgramPaths(configuration);
-		filter = new IpFilter();
 		PMS.setLocale(getLanguageLocale(true));
 		//TODO: The line below should be removed once all calls to Locale.getDefault() is replaced with PMS.getLocale()
 		Locale.setDefault(getLanguageLocale());
-
-		// Set DEFAULT_AVI_SYNTH_SCRIPT according to language
-		defaultAviSynthScript = "<movie>\n<sub>\n";
-
-		long usableMemory = (Runtime.getRuntime().maxMemory() / 1048576) - BUFFER_MEMORY_FACTOR;
-		if (usableMemory > MAX_MAX_MEMORY_DEFAULT_SIZE) {
-			maxMaxMemoryBufferSize = (int) usableMemory;
-		}
 
 		if ("".equals(getJwtSecret())) {
 			String randomUuid = UUID.randomUUID().toString();
@@ -776,7 +831,6 @@ public class UmsConfiguration extends BaseConfiguration {
 		// Just instantiate
 		super(configuration, configurationReader);
 		tempFolder = new TempFolder(getString(KEY_TEMP_FOLDER_PATH, null));
-		filter = null;
 		programPaths = new ConfigurableProgramPaths(configuration);
 	}
 
@@ -1489,7 +1543,7 @@ public class UmsConfiguration extends BaseConfiguration {
 
 	/**
 	 * Sets a new {@link ProgramExecutableType#CUSTOM} {@link Path} for
-	 * FFMS2 both in {@link PmsConfiguration} and the
+	 * FFMS2 both in {@link UmsConfiguration} and the
 	 * {@link ExternalProgramInfo}.
 	 *
 	 * @param customPath the new {@link Path} or {@code null} to clear it.
@@ -1504,7 +1558,7 @@ public class UmsConfiguration extends BaseConfiguration {
 
 	/**
 	 * Sets a new {@link ProgramExecutableType#CUSTOM} {@link Path} for
-	 * Convert2dTo3d both in {@link PmsConfiguration} and the
+	 * Convert2dTo3d both in {@link UmsConfiguration} and the
 	 * {@link ExternalProgramInfo}.
 	 *
 	 * @param customPath the new {@link Path} or {@code null} to clear it.
@@ -1519,7 +1573,7 @@ public class UmsConfiguration extends BaseConfiguration {
 
 	/**
 	 * Sets a new {@link ProgramExecutableType#CUSTOM} {@link Path} for
-	 * CropResize both in {@link PmsConfiguration} and the
+	 * CropResize both in {@link UmsConfiguration} and the
 	 * {@link ExternalProgramInfo}.
 	 *
 	 * @param customPath the new {@link Path} or {@code null} to clear it.
@@ -1572,12 +1626,16 @@ public class UmsConfiguration extends BaseConfiguration {
 		return getInt(KEY_AUDIO_BITRATE, 448);
 	}
 
-	public String getApiKey() {
-		return getString(KEY_API_KEY, "");
+	public boolean useNextcpApi() {
+		return  !"".equals(getNextcpApiKey());
+	}
+
+	public String getNextcpApiKey() {
+		return getString(KEY_NEXTCP_API_KEY, "");
 	}
 
 	public final String getJwtSecret() {
-		//don't use RendererConfiguration.getString as it will log the value
+		//don't use BaseConfiguration.getString as it will log the value
 		//jwt_secret can elevate users !!!
 		return configuration.getString(KEY_JWT_SIGNER_SECRET, "");
 	}
@@ -1592,18 +1650,6 @@ public class UmsConfiguration extends BaseConfiguration {
 	 */
 	public void setTsmuxerForceFps(boolean value) {
 		configuration.setProperty(KEY_TSMUXER_FORCEFPS, value);
-	}
-
-	/**
-	 * Get the MediaServer Engine version.
-	 * @return the MediaServer engine version selected, or 0 for default.
-	 */
-	public int getServerEngine() {
-		return getInt(KEY_SERVER_ENGINE, 0);
-	}
-
-	public void setServerEngine(int value) {
-		configuration.setProperty(KEY_SERVER_ENGINE, value);
 	}
 
 	/**
@@ -1671,6 +1717,19 @@ public class UmsConfiguration extends BaseConfiguration {
 	 */
 	public String getLanguageRawString() {
 		return configuration.getString(KEY_LANGUAGE);
+	}
+
+	public String getTranslationLanguage(String lang) {
+		if (lang == null) {
+			lang = getLanguageRawString();
+		}
+		if (lang == null) {
+			lang = PMS.getLocale().toLanguageTag();
+		}
+		if (lang != null) {
+			return lang.toLowerCase();
+		}
+		return "en-us";
 	}
 
 	/**
@@ -1949,28 +2008,6 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Returns the number of seconds from the start of a video file (the seek
-	 * position) where the thumbnail image for the movie should be extracted
-	 * from. Default is 4 seconds.
-	 *
-	 * @return The seek position in seconds.
-	 */
-	public int getThumbnailSeekPos() {
-		return getInt(KEY_THUMBNAIL_SEEK_POS, 4);
-	}
-
-	/**
-	 * Sets the number of seconds from the start of a video file (the seek
-	 * position) where the thumbnail image for the movie should be extracted
-	 * from.
-	 *
-	 * @param value The seek position in seconds.
-	 */
-	public void setThumbnailSeekPos(int value) {
-		configuration.setProperty(KEY_THUMBNAIL_SEEK_POS, value);
-	}
-
-	/**
 	 * Returns whether the user wants ASS/SSA subtitle support. Default is
 	 * true.
 	 *
@@ -2040,7 +2077,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	public String getAudioLanguages() {
 		return configurationReader.getPossiblyBlankConfigurationString(
 				KEY_AUDIO_LANGUAGES,
-				Messages.getString("AudioLanguages")
+				Messages.getConfigurationString("AudioLanguages")
 		);
 	}
 
@@ -2056,7 +2093,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	public String getSubtitlesLanguages() {
 		return configurationReader.getPossiblyBlankConfigurationString(
 				KEY_SUBTITLES_LANGUAGES,
-				Messages.getString("SubtitlesLanguages")
+				Messages.getConfigurationString("SubtitlesLanguages")
 		);
 	}
 
@@ -2095,7 +2132,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	public String getAudioSubLanguages() {
 		return configurationReader.getPossiblyBlankConfigurationString(
 				KEY_AUDIO_SUB_LANGS,
-				Messages.getString("AudioSubtitlesPairs")
+				Messages.getConfigurationString("AudioSubtitlesPairs")
 		);
 	}
 
@@ -2447,23 +2484,23 @@ public class UmsConfiguration extends BaseConfiguration {
 	 * @return The maximum video bitrate.
 	 */
 	public String getMaximumBitrate() {
-		String maximumBitrate = getMaximumBitrateDisplay();
-		if ("0".equals(maximumBitrate)) {
-			maximumBitrate = "1000";
+		Integer maximumBitrate = getMaximumBitrateDisplay();
+		if (maximumBitrate == 0) {
+			maximumBitrate = 1000;
 		}
 
-		return maximumBitrate;
+		return maximumBitrate.toString();
 	}
 
 	/**
 	 * The same as getMaximumBitrate() but this value is displayed to the user
-	 * because for our own uses we turn the value "0" into the value "1000" but
+	 * because for our own uses we turn the value 0 into the value 1000 but
 	 * that can be confusing for the user.
 	 *
 	 * @return The maximum video bitrate to display in the GUI.
 	 */
-	public String getMaximumBitrateDisplay() {
-		return getString(KEY_MAX_BITRATE, "90");
+	public int getMaximumBitrateDisplay() {
+		return getInt(KEY_MAX_BITRATE, 90);
 	}
 
 	/**
@@ -2472,7 +2509,13 @@ public class UmsConfiguration extends BaseConfiguration {
 	 * @param value The maximum video bitrate.
 	 */
 	public void setMaximumBitrate(String value) {
-		configuration.setProperty(KEY_MAX_BITRATE, value);
+		int maximumBitrate;
+		try {
+			maximumBitrate = Integer.parseInt(value);
+		} catch (NumberFormatException e) {
+			maximumBitrate = 90;
+		}
+		configuration.setProperty(KEY_MAX_BITRATE, maximumBitrate);
 	}
 
 	/**
@@ -2538,7 +2581,29 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Returns true if PMS should generate thumbnails for images. Default value
+	 * Returns the number of seconds from the start of a video file (the seek
+	 * position) where the thumbnail image for the movie should be extracted
+	 * from. Default is 4 seconds.
+	 *
+	 * @return The seek position in seconds.
+	 */
+	public int getThumbnailSeekPos() {
+		return getInt(KEY_THUMBNAIL_SEEK_POS, 4);
+	}
+
+	/**
+	 * Sets the number of seconds from the start of a video file (the seek
+	 * position) where the thumbnail image for the movie should be extracted
+	 * from.
+	 *
+	 * @param value The seek position in seconds.
+	 */
+	public void setThumbnailSeekPos(int value) {
+		configuration.setProperty(KEY_THUMBNAIL_SEEK_POS, value);
+	}
+
+	/**
+	 * Returns true if UMS should generate thumbnails for images. Default value
 	 * is true.
 	 *
 	 * @return True if image thumbnails should be generated.
@@ -2548,7 +2613,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Set to true if PMS should generate thumbnails for images.
+	 * Set to true if UMS should generate thumbnails for images.
 	 *
 	 * @param value True if image thumbnails should be generated.
 	 */
@@ -2584,7 +2649,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	 * get much information about CPUs from AMD and Intel from their Wikipedia
 	 * articles.
 	 * <p>
-	 * PMS will detect and set the correct amount of cores as the default value.
+	 * UMS will detect and set the correct amount of cores as the default value.
 	 *
 	 * @param value The number of CPU cores.
 	 */
@@ -2666,7 +2731,7 @@ public class UmsConfiguration extends BaseConfiguration {
 			} catch (IOException e) {
 				if (!PlatformUtils.INSTANCE.isAdmin()) {
 					try {
-						GuiManager.showErrorMessage(Messages.getString("UmsMustRunAdministrator"), Messages.getString("PermissionsError"));
+						GuiManager.showErrorMessage(Messages.getGuiString("UmsMustRunAdministrator"), Messages.getGuiString("PermissionsError"));
 					} catch (NullPointerException e2) {
 						// This happens on the initial program load, ignore it
 					}
@@ -2785,27 +2850,6 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Returns true if PMS should cache scanned media in its internal database,
-	 * speeding up later retrieval. When false is returned, PMS will not use
-	 * cache and media will have to be rescanned.
-	 *
-	 * @return True if PMS should cache media.
-	 */
-	public boolean getUseCache() {
-		return getBoolean(KEY_USE_CACHE, true);
-	}
-
-	/**
-	 * Set to true if PMS should cache scanned media in its internal database,
-	 * speeding up later retrieval.
-	 *
-	 * @param value True if PMS should cache media.
-	 */
-	public void setUseCache(boolean value) {
-		configuration.setProperty(KEY_USE_CACHE, value);
-	}
-
-	/**
 	 * Whether we should pass the flag "convertfps=true" to AviSynth.
 	 *
 	 * @param value True if we should pass the flag.
@@ -2887,7 +2931,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Returns the maximum size (in MB) that PMS should use for buffering
+	 * Returns the maximum size (in MB) that UMS should use for buffering
 	 * audio.
 	 *
 	 * @return The maximum buffer size.
@@ -2897,7 +2941,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Returns the minimum size (in MB) that PMS should use for the buffer used
+	 * Returns the minimum size (in MB) that UMS should use for the buffer used
 	 * for streaming media.
 	 *
 	 * @return The minimum buffer size.
@@ -2937,7 +2981,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	public String getFFmpegGPUDecodingAccelerationMethod() {
-		return getString(KEY_FFMPEG_GPU_DECODING_ACCELERATION_METHOD, Messages.getString("None_lowercase"));
+		return getString(KEY_FFMPEG_GPU_DECODING_ACCELERATION_METHOD, "none");
 	}
 
 	public String getFFmpegGPUH264EncodingAccelerationMethod() {
@@ -2969,7 +3013,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	public String[] getFFmpegAvailableGPUDecodingAccelerationMethods() {
-		return getString(KEY_FFMPEG_AVAILABLE_GPU_ACCELERATION_METHODS, Messages.getString("None_lowercase")).split(",");
+		return getString(KEY_FFMPEG_AVAILABLE_GPU_ACCELERATION_METHODS, "none").split(",");
 	}
 
 	public static String[] getFFmpegAvailableGPUH264EncodingAccelerationMethods() {
@@ -3613,6 +3657,10 @@ public class UmsConfiguration extends BaseConfiguration {
 		return StringUtils.join(list, LIST_SEPARATOR);
 	}
 
+	public static char getListDelimiter() {
+		return LIST_SEPARATOR;
+	}
+
 	@SuppressWarnings("unused")
 	private static List<String> stringToStringList(String input) {
 		List<String> output = new ArrayList<>();
@@ -3656,6 +3704,18 @@ public class UmsConfiguration extends BaseConfiguration {
 		LOGGER.info("Configuration saved to \"{}\"", PROFILE_PATH);
 	}
 
+	/**
+	 * Save the configuration changes immediately to the configuration file and
+	 * not wait for the automatic saving.
+	 */
+	public void saveConfiguration() {
+		try {
+			save();
+		} catch (ConfigurationException e) {
+			LOGGER.error("Could not save configuration", e);
+		}
+	}
+
 	private ArrayList<String> ignoredFolderNames;
 
 	/**
@@ -3663,18 +3723,21 @@ public class UmsConfiguration extends BaseConfiguration {
 	 */
 	private boolean ignoredFolderNamesRead;
 
+	/**
+	 * List of system folder to always skip.
+	 */
+	private List<String> ignoredSystemFolderNames = List.of("$RECYCLE.BIN", "System Volume Information");
 
 	/**
 	 * @return The {@link List} of {@link Path}s of ignored folder names.
 	 */
 	@Nonnull
-	public ArrayList<String> getIgnoredFolderNames() {
+	public List<String> getIgnoredFolderNames() {
 		if (!ignoredFolderNamesRead) {
-			String ignoredFolderNamesString = configuration.getString(KEY_FOLDER_NAMES_IGNORED, ".unwanted");
+			String ignoredFolderNamesString = configuration.getString(KEY_FOLDER_NAMES_IGNORED, ".unwanted,$RECYCLE.BIN,System Volume Information");
 
-			ArrayList<String> folders = new ArrayList<>();
 			if (ignoredFolderNamesString == null || ignoredFolderNamesString.length() == 0) {
-				return folders;
+				return ignoredSystemFolderNames;
 			}
 
 			String[] foldersArray = ignoredFolderNamesString.trim().split("\\s*,\\s*");
@@ -3690,6 +3753,7 @@ public class UmsConfiguration extends BaseConfiguration {
 				// add the path even if there are problems so that the user can update the shared folders as required.
 				ignoredFolderNames.add(folder);
 			}
+			ignoredFolderNames.addAll(ignoredSystemFolderNames);
 
 			ignoredFolderNamesRead = true;
 		}
@@ -3724,11 +3788,7 @@ public class UmsConfiguration extends BaseConfiguration {
 		}
 		return SubtitlesInfoLevel.BASIC; // Default
 	}
-	public static synchronized JsonArray getFfmpegLoglevels() {
-		String[] values = FFmpegLogLevels.getLabels();
-		String[] labels = FFmpegLogLevels.getLabels();
-		return UMSUtils.getArraysAsJsonArrayOfObjects(values, labels, null);
-	}
+
 	/**
 	 * Sets if subtitles information should be added to video names.
 	 *
@@ -3738,118 +3798,12 @@ public class UmsConfiguration extends BaseConfiguration {
 		configuration.setProperty(KEY_SUBS_INFO_LEVEL, value == null ? "" : value.toString());
 	}
 
-	/**
-	 * @return available subtitles info levels as a JSON array
-	 */
-	public static synchronized JsonArray getSubtitlesInfoLevelsAsJsonArray() {
-		String[] values = new String[] {
-			SubtitlesInfoLevel.NONE.toString(),
-			SubtitlesInfoLevel.BASIC.toString(),
-			SubtitlesInfoLevel.FULL.toString()
-		};
-		String[] labels = new String[] {
-			"i18n@None",
-			"i18n@Basic",
-			"i18n@Full"
-		};
-		return UMSUtils.getArraysAsJsonArrayOfObjects(values, labels, null);
-	}
-
-	/**
-	 * @return available fully played actions as a JSON array
-	 */
-	public static synchronized JsonArray getFullyPlayedActionsAsJsonArray() {
-		String[] values = new String[]{
-			String.valueOf(FullyPlayedAction.NO_ACTION.getValue()),
-			String.valueOf(FullyPlayedAction.MARK.getValue()),
-			String.valueOf(FullyPlayedAction.HIDE_MEDIA.getValue()),
-			String.valueOf(FullyPlayedAction.MOVE_FOLDER.getValue()),
-			String.valueOf(FullyPlayedAction.MOVE_FOLDER_AND_MARK.getValue()),
-			String.valueOf(FullyPlayedAction.MOVE_TRASH.getValue())
-		};
-		String[] labels = new String[]{
-			"i18n@DoNothing",
-			"i18n@MarkMedia",
-			"i18n@HideMedia",
-			"i18n@MoveFileToDifferentFolder",
-			"i18n@MoveFileDifferentFolderMark",
-			"i18n@MoveFileRecycleTrashBin"
-		};
-		return UMSUtils.getArraysAsJsonArrayOfObjects(values, labels, null);
-	}
-
-	public static synchronized JsonArray getSubtitlesCodepageArray() {
-		String[] values = new String[]{
-			"", "cp874", "cp932", "cp936", "cp949", "cp950", "cp1250",
-			"cp1251", "cp1252", "cp1253", "cp1254", "cp1255", "cp1256",
-			"cp1257", "cp1258", "ISO-2022-CN", "ISO-2022-JP", "ISO-2022-KR",
-			"ISO-8859-1", "ISO-8859-2", "ISO-8859-3", "ISO-8859-4",
-			"ISO-8859-5", "ISO-8859-6", "ISO-8859-7", "ISO-8859-8",
-			"ISO-8859-9", "ISO-8859-10", "ISO-8859-11", "ISO-8859-13",
-			"ISO-8859-14", "ISO-8859-15", "ISO-8859-16", "Big5", "EUC-JP",
-			"EUC-KR", "GB18030", "IBM420", "IBM424", "KOI8-R", "Shift_JIS", "TIS-620"
-		};
-		String[] labels = new String[]{
-			"i18n@AutoDetect",
-			"i18n@CharacterSet.874",
-			"i18n@CharacterSet.932",
-			"i18n@CharacterSet.936",
-			"i18n@CharacterSet.949",
-			"i18n@CharacterSet.950",
-			"i18n@CharacterSet.1250",
-			"i18n@CharacterSet.1251",
-			"i18n@CharacterSet.1252",
-			"i18n@CharacterSet.1253",
-			"i18n@CharacterSet.1254",
-			"i18n@CharacterSet.1255",
-			"i18n@CharacterSet.1256",
-			"i18n@CharacterSet.1257",
-			"i18n@CharacterSet.1258",
-			"i18n@CharacterSet.2022-CN",
-			"i18n@CharacterSet.2022-JP",
-			"i18n@CharacterSet.2022-KR",
-			"i18n@CharacterSet.8859-1",
-			"i18n@CharacterSet.8859-2",
-			"i18n@CharacterSet.8859-3",
-			"i18n@CharacterSet.8859-4",
-			"i18n@CharacterSet.8859-5",
-			"i18n@CharacterSet.8859-6",
-			"i18n@CharacterSet.8859-7",
-			"i18n@CharacterSet.8859-8",
-			"i18n@CharacterSet.8859-9",
-			"i18n@CharacterSet.8859-10",
-			"i18n@CharacterSet.8859-11",
-			"i18n@CharacterSet.8859-13",
-			"i18n@CharacterSet.8859-14",
-			"i18n@CharacterSet.8859-15",
-			"i18n@CharacterSet.8859-16",
-			"i18n@CharacterSet.Big5",
-			"i18n@CharacterSet.EUC-JP",
-			"i18n@CharacterSet.EUC-KR",
-			"i18n@CharacterSet.GB18030",
-			"i18n@CharacterSet.IBM420",
-			"i18n@CharacterSet.IBM424",
-			"i18n@CharacterSet.KOI8-R",
-			"i18n@CharacterSet.ShiftJIS",
-			"i18n@CharacterSet.TIS-620"
-		};
-		return UMSUtils.getArraysAsJsonArrayOfObjects(values, labels, null);
-	}
-
 	public boolean isHideExtensions() {
 		return getBoolean(KEY_HIDE_EXTENSIONS, true);
 	}
 
 	public void setHideExtensions(boolean value) {
 		configuration.setProperty(KEY_HIDE_EXTENSIONS, value);
-	}
-
-	public String getShares() {
-		return getString(KEY_SHARES, "");
-	}
-
-	public void setShares(String value) {
-		configuration.setProperty(KEY_SHARES, value);
 	}
 
 	public String getDisableTranscodeForExtensions() {
@@ -3862,6 +3816,10 @@ public class UmsConfiguration extends BaseConfiguration {
 
 	public boolean isDisableTranscoding() {
 		return getBoolean(KEY_DISABLE_TRANSCODING, false);
+	}
+
+	public void setDisableTranscoding(boolean value) {
+		configuration.setProperty(KEY_DISABLE_TRANSCODING, value);
 	}
 
 	public String getForceTranscodeForExtensions() {
@@ -3972,8 +3930,8 @@ public class UmsConfiguration extends BaseConfiguration {
 	public int getSortMethod(File path) {
 		int cnt = 0;
 		String raw = getString(KEY_SORT_PATHS, null);
-		if (StringUtils.isEmpty(raw)) {
-			return getInt(KEY_SORT_METHOD, UMSUtils.SORT_LOC_NAT);
+		if (StringUtils.isBlank(raw)) {
+			return getSortMethod();
 		}
 
 		if (Platform.isWindows()) {
@@ -4001,7 +3959,11 @@ public class UmsConfiguration extends BaseConfiguration {
 			path = path.getParentFile();
 		}
 
-		return getInt(KEY_SORT_METHOD, UMSUtils.SORT_LOC_NAT);
+		return getSortMethod();
+	}
+
+	public int getSortMethod() {
+		return getInt(KEY_SORT_METHOD, StoreResourceSorter.SORT_TITLE_ASC);
 	}
 
 	/**
@@ -4131,17 +4093,84 @@ public class UmsConfiguration extends BaseConfiguration {
 		return getBoolean(KEY_USE_MPLAYER_FOR_THUMBS, false);
 	}
 
-	public String getIpFilter() {
-		return getString(KEY_IP_FILTER, "");
+	/**
+	 * Whether network devices are blocked by default.
+	 * This also determines whether the current network devices filter is an
+	 * allowlist or a denylist.
+	 */
+	public boolean isNetworkDevicesBlockedByDefault() {
+		return getBoolean(KEY_BLOCK_NETWORK_DEVICES_BY_DEFAULT, false);
 	}
 
-	public synchronized IpFilter getIpFiltering() {
-		filter.setRawFilter(getIpFilter());
-		return filter;
+	/**
+	 * Whether to allow or block network devices by default.
+	 * Changing this value will also delete the current network devices filter.
+	 *
+	 * @param value True to block network devices by default.
+	 */
+	public void setNetworkDevicesBlockedByDefault(boolean value) {
+		configuration.setProperty(KEY_BLOCK_NETWORK_DEVICES_BY_DEFAULT, value);
 	}
 
-	public void setIpFilter(String value) {
-		configuration.setProperty(KEY_IP_FILTER, value);
+	/**
+	 * Gets the network devices filter.
+	 */
+	public final String getNetworkDevicesFilter() {
+		return getString(KEY_NETWORK_DEVICES_FILTER, "");
+	}
+
+	/**
+	 * Sets the network devices filter.
+	 */
+	public void setNetworkDevicesFilter(String value) {
+		configuration.setProperty(KEY_NETWORK_DEVICES_FILTER, value);
+	}
+
+	/**
+	 * Whether renderers are blocked by default.
+	 * This also determines whether the current renderers filter is an allowlist
+	 * or a denylist.
+	 */
+	public boolean isRenderersBlockedByDefault() {
+		return getBoolean(KEY_BLOCK_RENDERERS_BY_DEFAULT, false);
+	}
+
+	/**
+	 * Whether to allow or block renderers by default.
+	 * Changing this value will also delete the current renderers filter.
+	 *
+	 * @param value True to block renderers by default.
+	 */
+	public void setRenderersBlockedByDefault(boolean value) {
+		configuration.setProperty(KEY_BLOCK_RENDERERS_BY_DEFAULT, value);
+	}
+
+	/**
+	 * Gets the renderers filter.
+	 */
+	public final String getRenderersFilter() {
+		return getString(KEY_RENDERERS_FILTER, "");
+	}
+
+	/**
+	 * Sets the renderers filter.
+	 */
+	public void setRenderersFilter(String value) {
+		configuration.setProperty(KEY_RENDERERS_FILTER, value);
+	}
+
+	/**
+	 * Gets the renderers linked user.
+	 */
+	public final String getRenderersUser() {
+		return getString(KEY_RENDERERS_USER, "{}");
+	}
+
+	/**
+	 * Sets the renderers linked user.
+	 */
+	public void setRenderersUser(String value) {
+		configuration.setProperty(KEY_RENDERERS_USER, value);
 	}
 
 	public void setPreventSleep(PreventSleepMode value) {
@@ -4158,34 +4187,6 @@ public class UmsConfiguration extends BaseConfiguration {
 
 	public PreventSleepMode getPreventSleep() {
 		return PreventSleepMode.typeOf(getString(KEY_PREVENT_SLEEP, PreventSleepMode.PLAYBACK.getValue()));
-	}
-
-	public boolean isShowIphotoLibrary() {
-		return getBoolean(KEY_SHOW_IPHOTO_LIBRARY, false);
-	}
-
-	public void setShowIphotoLibrary(boolean value) {
-		configuration.setProperty(KEY_SHOW_IPHOTO_LIBRARY, value);
-	}
-
-	public boolean isShowApertureLibrary() {
-		return getBoolean(KEY_SHOW_APERTURE_LIBRARY, false);
-	}
-
-	public void setShowApertureLibrary(boolean value) {
-		configuration.setProperty(KEY_SHOW_APERTURE_LIBRARY, value);
-	}
-
-	public boolean isShowItunesLibrary() {
-		return getBoolean(KEY_SHOW_ITUNES_LIBRARY, false);
-	}
-
-	public String getItunesLibraryPath() {
-		return getString(KEY_ITUNES_LIBRARY_PATH, "");
-	}
-
-	public void setShowItunesLibrary(boolean value) {
-		configuration.setProperty(KEY_SHOW_ITUNES_LIBRARY, value);
 	}
 
 	public boolean isHideAdvancedOptions() {
@@ -4246,6 +4247,24 @@ public class UmsConfiguration extends BaseConfiguration {
 	 */
 	public void setShowTranscodeFolder(boolean value) {
 		configuration.setProperty(KEY_SHOW_TRANSCODE_FOLDER, value);
+	}
+
+	/**
+	 * Whether to show user choice on non affiliate renderer.
+	 *
+	 * @return whether the user choice is shown
+	 */
+	public boolean isShowUserChoice() {
+		return getBoolean(KEY_SHOW_USER_CHOICE, true);
+	}
+
+	/**
+	 * Whether to show user choice on non affiliate renderer.
+	 *
+	 * @param value whether the user choice is shown
+	 */
+	public void setShowUserChoice(boolean value) {
+		configuration.setProperty(KEY_SHOW_USER_CHOICE, value);
 	}
 
 	public boolean isDvdIsoThumbnails() {
@@ -4342,14 +4361,6 @@ public class UmsConfiguration extends BaseConfiguration {
 		configuration.setProperty(KEY_PRETTIFY_FILENAMES, value);
 	}
 
-	public boolean isUseInfoFromIMDb() {
-		return getBoolean(KEY_USE_IMDB_INFO, true);
-	}
-
-	public void setUseInfoFromIMDb(boolean value) {
-		configuration.setProperty(KEY_USE_IMDB_INFO, value);
-	}
-
 	public boolean isRunWizard() {
 		return getBoolean(KEY_RUN_WIZARD, true);
 	}
@@ -4396,11 +4407,11 @@ public class UmsConfiguration extends BaseConfiguration {
 
 	/**
 	 * Returns the name of the renderer to fall back on when header matching
-	 * fails. PMS will recognize the configured renderer instead of "Unknown
-	 * renderer". Default value is "", which means PMS will return the unknown
+	 * fails. UMS will recognize the configured renderer instead of "Unknown
+	 * renderer". Default value is "", which means UMS will return the unknown
 	 * renderer when no match can be made.
 	 *
-	 * @return The name of the renderer PMS should fall back on when header
+	 * @return The name of the renderer UMS should fall back on when header
 	 *         matching fails.
 	 * @see #isRendererForceDefault()
 	 */
@@ -4410,8 +4421,8 @@ public class UmsConfiguration extends BaseConfiguration {
 
 	/**
 	 * Sets the name of the renderer to fall back on when header matching
-	 * fails. PMS will recognize the configured renderer instead of "Unknown
-	 * renderer". Set to "" to make PMS return the unknown renderer when no
+	 * fails. UMS will recognize the configured renderer instead of "Unknown
+	 * renderer". Set to "" to make UMS return the unknown renderer when no
 	 * match can be made.
 	 *
 	 * @param value The name of the renderer to fall back on. This has to be
@@ -4424,9 +4435,9 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Returns true when PMS should not try to guess connecting renderers
+	 * Returns true when UMS should not try to guess connecting renderers
 	 * and instead force picking the defined fallback renderer. Default
-	 * value is false, which means PMS will attempt to recognize connecting
+	 * value is false, which means UMS will attempt to recognize connecting
 	 * renderers by their headers.
 	 *
 	 * @return True when the fallback renderer should always be picked.
@@ -4437,9 +4448,9 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Set to true when PMS should not try to guess connecting renderers
+	 * Set to true when UMS should not try to guess connecting renderers
 	 * and instead force picking the defined fallback renderer. Set to false
-	 * to make PMS attempt to recognize connecting renderers by their headers.
+	 * to make UMS attempt to recognize connecting renderers by their headers.
 	 *
 	 * @param value True when the fallback renderer should always be picked.
 	 * @see #setRendererDefault(String)
@@ -4448,12 +4459,37 @@ public class UmsConfiguration extends BaseConfiguration {
 		configuration.setProperty(KEY_RENDERER_FORCE_DEFAULT, value);
 	}
 
-	public String getProfilePath() {
+	public static String getProfilePath() {
 		return PROFILE_PATH;
 	}
 
-	public String getProfileDirectory() {
+	public static String getProfileDirectory() {
 		return PROFILE_DIRECTORY;
+	}
+
+	public static String getProfileType() {
+		return switch (PROFILE_TYPE) {
+			case 1 -> "user";
+			case 2 -> "portable";
+			case 3 -> "custom";
+			default -> "system";
+		};
+	}
+
+	public static boolean isSystemProfile() {
+		return PROFILE_TYPE == 0;
+	}
+
+	public static boolean isUserProfile() {
+		return PROFILE_TYPE == 1;
+	}
+
+	public static boolean isPortableProfile() {
+		return PROFILE_TYPE == 2;
+	}
+
+	public static boolean isCustomProfile() {
+		return PROFILE_TYPE == 3;
 	}
 
 	/**
@@ -4478,7 +4514,7 @@ public class UmsConfiguration extends BaseConfiguration {
 		return getString(KEY_SHARED_CONF_PATH, sharedConfPath);
 	}
 
-	public String getProfileName() {
+	public static String getHostName() {
 		if (hostName == null) { // Initialise this lazily
 			try {
 				hostName = InetAddress.getLocalHost().getHostName();
@@ -4487,8 +4523,11 @@ public class UmsConfiguration extends BaseConfiguration {
 				hostName = "unknown host";
 			}
 		}
+		return hostName;
+	}
 
-		return getString(KEY_PROFILE_NAME, hostName);
+	public String getProfileName() {
+		return getString(KEY_PROFILE_NAME, getHostName());
 	}
 
 	public boolean isAuthenticationEnabled() {
@@ -4570,7 +4609,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	 * @return The folder name.
 	 */
 	public String getTranscodeFolderName() {
-		return getString(KEY_TRANSCODE_FOLDER_NAME, Messages.getString("Transcode_FolderName"));
+		return getString(KEY_TRANSCODE_FOLDER_NAME, Messages.getConfigurationString("Transcode_FolderName"));
 	}
 
 	/**
@@ -4653,29 +4692,61 @@ public class UmsConfiguration extends BaseConfiguration {
 		configuration.setProperty(KEY_EXTERNAL_NETWORK, b);
 	}
 
+	public boolean isUseInfoFromExternalAPI() {
+		return isUseInfoFromUmsAPI() || isUseInfoFromTMDB();
+	}
+
+	public boolean isUseInfoFromUmsAPI() {
+		return getBoolean(KEY_USE_API_INFO, true);
+	}
+
+	public void setUseInfoFromUmsAPI(boolean value) {
+		configuration.setProperty(KEY_USE_API_INFO, value);
+	}
+
+	public boolean isUseInfoFromTMDB() {
+		return getBoolean(KEY_USE_TMDB_INFO, true);
+	}
+
+	public void setUseInfoFromTMDB(boolean value) {
+		configuration.setProperty(KEY_USE_TMDB_INFO, value);
+	}
+
+	public String getTmdbApiKey() {
+		//don't use BaseConfiguration.getString as it will log the value
+		//tmdb_api_key should stay secret !!!
+		return configuration.getString(KEY_TMDB_API_KEY, "");
+	}
+
+	public void setTmdbApiKey(String value) {
+		configuration.setProperty(KEY_TMDB_API_KEY, value);
+	}
+
 	/* Credential path handling */
 	public static final String KEY_CRED_PATH = "cred.path";
 
-	public void initCred() throws IOException {
+	public void initCred() {
 		File credFile = getCredFile();
 
 		if (!credFile.exists()) {
 			// Create an empty file and save the path if needed
-			try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(credFile), StandardCharsets.UTF_8))) {
-				writer.write("# Add credentials to the file");
-				writer.newLine();
-				writer.write("# on the format tag=user,password");
-				writer.newLine();
-				writer.write("# For example:");
-				writer.newLine();
-				writer.write("# channels.xxx=name,secret");
-				writer.newLine();
-			}
-
-			// Save the path if we got here
-			configuration.setProperty(KEY_CRED_PATH, credFile.getAbsolutePath());
 			try {
+				try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(credFile), StandardCharsets.UTF_8))) {
+					writer.write("# Add credentials to the file");
+					writer.newLine();
+					writer.write("# on the format tag=user,password");
+					writer.newLine();
+					writer.write("# For example:");
+					writer.newLine();
+					writer.write("# channels.xxx=name,secret");
+					writer.newLine();
+				}
+
+				// Save the path if we got here
+				configuration.setProperty(KEY_CRED_PATH, credFile.getAbsolutePath());
 				((PropertiesConfiguration) configuration).save();
+			} catch (IOException e) {
+				LOGGER.debug("Error initializing credentials file: {}", e);
 			} catch (ConfigurationException e) {
 				LOGGER.warn("An error occurred while saving configuration: {}", e.getMessage());
 			}
@@ -4752,7 +4823,7 @@ public class UmsConfiguration extends BaseConfiguration {
 	}
 
 	public boolean displayAudioLikesInRootFolder() {
-		return getBoolean(KEY_AUDIO_LIKES_IN_ROOT_FOLDER, false);
+		return getBoolean(KEY_NEXTCP_AUDIO_LIKES_IN_ROOT_FOLDER, false);
 	}
 
 	public int getLiveSubtitlesLimit() {
@@ -4984,10 +5055,6 @@ public class UmsConfiguration extends BaseConfiguration {
 		return getMinimumWatchedPlayTime() / 1000;
 	}
 
-	public int getMinPlayTimeWeb() {
-		return getInt(KEY_MIN_PLAY_TIME_WEB, getMinimumWatchedPlayTime());
-	}
-
 	public int getMinPlayTimeFile() {
 		return getInt(KEY_MIN_PLAY_TIME_FILE, getMinimumWatchedPlayTime());
 	}
@@ -5077,10 +5144,6 @@ public class UmsConfiguration extends BaseConfiguration {
 
 	public File getWebFile(String file) {
 		return new File(getWebPath().getAbsolutePath() + File.separator + file);
-	}
-
-	public boolean isWebAuthenticate() {
-		return getBoolean(KEY_WEB_AUTHENTICATE, false);
 	}
 
 	/**
@@ -5180,64 +5243,6 @@ public class UmsConfiguration extends BaseConfiguration {
 		return getBoolean(KEY_WEB_PLAYER_SUB_LANG, false);
 	}
 
-	@Deprecated
-	public String getBumpAddress() {
-		return getString(KEY_BUMP_ADDRESS, "");
-	}
-
-	@Deprecated
-	public void setBumpAddress(String value) {
-		configuration.setProperty(KEY_BUMP_ADDRESS, value);
-	}
-
-	@Deprecated
-	public String getBumpJS(String fallback) {
-		return getString(KEY_BUMP_JS, fallback);
-	}
-
-	@Deprecated
-	public String getBumpSkinDir(String fallback) {
-		return getString(KEY_BUMP_SKIN_DIR, fallback);
-	}
-
-	@Deprecated
-	public String getWebSize() {
-		return getString(KEY_WEB_SIZE, "");
-	}
-
-	@Deprecated
-	public int getWebHeight() {
-		return getInt(KEY_WEB_HEIGHT, 0);
-	}
-
-	@Deprecated
-	public int getWebWidth() {
-		return getInt(KEY_WEB_WIDTH, 0);
-	}
-
-	@Deprecated
-	public boolean getWebFlash() {
-		return getBoolean(KEY_WEB_FLASH, false);
-	}
-
-	@Deprecated
-	public String getBumpAllowedIps() {
-		return getString(KEY_BUMP_IPS, "");
-	}
-
-	@Deprecated
-	public boolean useWebLang() {
-		return getBoolean(KEY_WEB_BROWSE_LANG, false);
-	}
-
-	public String getWebTranscode() {
-		return getString(KEY_WEB_TRANSCODE, null);
-	}
-
-	public int getWebLowSpeed() {
-		return getInt(KEY_WEB_LOW_SPEED, 0);
-	}
-
 	public boolean isAutomaticMaximumBitrate() {
 		return getBoolean(KEY_AUTOMATIC_MAXIMUM_BITRATE, true);
 	}
@@ -5332,10 +5337,6 @@ public class UmsConfiguration extends BaseConfiguration {
 		return getBoolean(KEY_CHROMECAST_DBG, false);
 	}
 
-	public String getManagedPlaylistFolder() {
-		return getString(KEY_MANAGED_PLAYLIST_FOLDER, "");
-	}
-
 	/**
 	 * Enable the automatically saving of modified properties to the disk.
 	 */
@@ -5347,8 +5348,42 @@ public class UmsConfiguration extends BaseConfiguration {
 		return getBoolean(KEY_UPNP_ENABLED, true);
 	}
 
-	public boolean isUpnpDebug() {
-		return getBoolean(KEY_UPNP_DEBUG, false);
+	private int getUpnpDebugLevel() {
+		return getInt(KEY_UPNP_LOG_LEVEL, 1);
+	}
+
+	public boolean isUpnpDebugOff() {
+		return getUpnpDebugLevel() < 1;
+	}
+
+	public boolean isUpnpDebugMediaServer() {
+		return getUpnpDebugLevel() > 0;
+	}
+
+	public boolean isUpnpDebugBasic() {
+		return getUpnpDebugLevel() > 1;
+	}
+
+	public boolean isUpnpDebugFull() {
+		return getUpnpDebugLevel() > 2;
+	}
+
+	public boolean isUpnpJupnpDidl() {
+		return getBoolean(KEY_UPNP_JUPNP_DIDL, false);
+	}
+
+	/**
+	 * This allow remote device to modify CDS.
+	 */
+	public boolean isUpnpCdsWrite() {
+		return getBoolean(KEY_UPNP_CDS_WRITE, false);
+	}
+
+	/**
+	 * This allow anonymous remote devices to add/replace files and folders.
+	 */
+	public boolean isAnonymousDevicesWrite() {
+		return getBoolean(KEY_ANONYMOUS_DEVICES_WRITE, false);
 	}
 
 	public String getRootLogLevel() {
@@ -5489,24 +5524,130 @@ public class UmsConfiguration extends BaseConfiguration {
 	 */
 	public static synchronized JsonArray getSortMethodsAsJsonArray() {
 		String[] values = new String[]{
-			"" + UMSUtils.SORT_LOC_SENS,  // alphabetical
-			"" + UMSUtils.SORT_LOC_NAT,   // natural sort
-			"" + UMSUtils.SORT_INS_ASCII, // ASCIIbetical
-			"" + UMSUtils.SORT_MOD_NEW,   // newest first
-			"" + UMSUtils.SORT_MOD_OLD,   // oldest first
-			"" + UMSUtils.SORT_RANDOM,    // random
-			"" + UMSUtils.SORT_NO_SORT    // no sorting
+			"" + StoreResourceSorter.SORT_TITLE_ASC,      // title asc
+			"" + StoreResourceSorter.SORT_DATE_MOD_DESC,  // newest first
+			"" + StoreResourceSorter.SORT_DATE_MOD_ASC,   // oldest first
+			"" + StoreResourceSorter.SORT_RANDOM,         // random
+			"" + StoreResourceSorter.SORT_NO_SORT         // no sorting
 		};
 		String[] labels = new String[]{
-			"i18n@AlphabeticalAZ",
-			"i18n@Alphanumeric",
-			"i18n@Asciibetical",
+			"i18n@ByDisplayName",
 			"i18n@ByDateNewestFirst",
 			"i18n@ByDateOldestFirst",
 			"i18n@Random",
 			"i18n@NoSorting"
 		};
 
+		return UMSUtils.getArraysAsJsonArrayOfObjects(values, labels, null);
+	}
+
+	public static synchronized JsonArray getFfmpegLoglevels() {
+		String[] values = FFmpegLogLevels.getLabels();
+		String[] labels = FFmpegLogLevels.getLabels();
+		return UMSUtils.getArraysAsJsonArrayOfObjects(values, labels, null);
+	}
+
+	/**
+	 * @return available subtitles info levels as a JSON array
+	 */
+	public static synchronized JsonArray getSubtitlesInfoLevelsAsJsonArray() {
+		String[] values = new String[] {
+			SubtitlesInfoLevel.NONE.toString(),
+			SubtitlesInfoLevel.BASIC.toString(),
+			SubtitlesInfoLevel.FULL.toString()
+		};
+		String[] labels = new String[] {
+			"i18n@None",
+			"i18n@Basic",
+			"i18n@Full"
+		};
+		return UMSUtils.getArraysAsJsonArrayOfObjects(values, labels, null);
+	}
+
+	public static synchronized JsonArray getUpnpLoglevels() {
+		String[] values = new String[]{"0", "1", "2", "3"};
+		String[] labels = new String[]{"i18n@None", "i18n@MediaServerOnly", "i18n@Basic", "i18n@Full"};
+		return UMSUtils.getArraysAsJsonArrayOfObjects(values, labels, null);
+	}
+
+	/**
+	 * @return available fully played actions as a JSON array
+	 */
+	public static synchronized JsonArray getFullyPlayedActionsAsJsonArray() {
+		String[] values = new String[]{
+			String.valueOf(FullyPlayedAction.NO_ACTION.getValue()),
+			String.valueOf(FullyPlayedAction.MARK.getValue()),
+			String.valueOf(FullyPlayedAction.HIDE_MEDIA.getValue()),
+			String.valueOf(FullyPlayedAction.MOVE_FOLDER.getValue()),
+			String.valueOf(FullyPlayedAction.MOVE_FOLDER_AND_MARK.getValue()),
+			String.valueOf(FullyPlayedAction.MOVE_TRASH.getValue())
+		};
+		String[] labels = new String[]{
+			"i18n@DoNothing",
+			"i18n@MarkMedia",
+			"i18n@HideMedia",
+			"i18n@MoveFileToDifferentFolder",
+			"i18n@MoveFileDifferentFolderMark",
+			"i18n@MoveFileRecycleTrashBin"
+		};
+		return UMSUtils.getArraysAsJsonArrayOfObjects(values, labels, null);
+	}
+
+	public static synchronized JsonArray getSubtitlesCodepageArray() {
+		String[] values = new String[]{
+			"", "cp874", "cp932", "cp936", "cp949", "cp950", "cp1250",
+			"cp1251", "cp1252", "cp1253", "cp1254", "cp1255", "cp1256",
+			"cp1257", "cp1258", "ISO-2022-CN", "ISO-2022-JP", "ISO-2022-KR",
+			"ISO-8859-1", "ISO-8859-2", "ISO-8859-3", "ISO-8859-4",
+			"ISO-8859-5", "ISO-8859-6", "ISO-8859-7", "ISO-8859-8",
+			"ISO-8859-9", "ISO-8859-10", "ISO-8859-11", "ISO-8859-13",
+			"ISO-8859-14", "ISO-8859-15", "ISO-8859-16", "Big5", "EUC-JP",
+			"EUC-KR", "GB18030", "IBM420", "IBM424", "KOI8-R", "Shift_JIS", "TIS-620"
+		};
+		String[] labels = new String[]{
+			"i18n@AutoDetect",
+			"i18n@CharacterSet.874",
+			"i18n@CharacterSet.932",
+			"i18n@CharacterSet.936",
+			"i18n@CharacterSet.949",
+			"i18n@CharacterSet.950",
+			"i18n@CharacterSet.1250",
+			"i18n@CharacterSet.1251",
+			"i18n@CharacterSet.1252",
+			"i18n@CharacterSet.1253",
+			"i18n@CharacterSet.1254",
+			"i18n@CharacterSet.1255",
+			"i18n@CharacterSet.1256",
+			"i18n@CharacterSet.1257",
+			"i18n@CharacterSet.1258",
+			"i18n@CharacterSet.2022-CN",
+			"i18n@CharacterSet.2022-JP",
+			"i18n@CharacterSet.2022-KR",
+			"i18n@CharacterSet.8859-1",
+			"i18n@CharacterSet.8859-2",
+			"i18n@CharacterSet.8859-3",
+			"i18n@CharacterSet.8859-4",
+			"i18n@CharacterSet.8859-5",
+			"i18n@CharacterSet.8859-6",
+			"i18n@CharacterSet.8859-7",
+			"i18n@CharacterSet.8859-8",
+			"i18n@CharacterSet.8859-9",
+			"i18n@CharacterSet.8859-10",
+			"i18n@CharacterSet.8859-11",
+			"i18n@CharacterSet.8859-13",
+			"i18n@CharacterSet.8859-14",
+			"i18n@CharacterSet.8859-15",
+			"i18n@CharacterSet.8859-16",
+			"i18n@CharacterSet.Big5",
+			"i18n@CharacterSet.EUC-JP",
+			"i18n@CharacterSet.EUC-KR",
+			"i18n@CharacterSet.GB18030",
+			"i18n@CharacterSet.IBM420",
+			"i18n@CharacterSet.IBM424",
+			"i18n@CharacterSet.KOI8-R",
+			"i18n@CharacterSet.ShiftJIS",
+			"i18n@CharacterSet.TIS-620"
+		};
 		return UMSUtils.getArraysAsJsonArrayOfObjects(values, labels, null);
 	}
 
@@ -5573,7 +5714,7 @@ public class UmsConfiguration extends BaseConfiguration {
 		jObj.addProperty(KEY_AUDIO_CHANNEL_COUNT, "6");
 		jObj.addProperty(KEY_AUDIO_EMBED_DTS_IN_PCM, false);
 		jObj.addProperty(KEY_AUDIO_BITRATE, "448");
-		jObj.addProperty(KEY_AUDIO_LANGUAGES, Messages.getString("AudioLanguages"));
+		jObj.addProperty(KEY_AUDIO_LANGUAGES, Messages.getConfigurationString("AudioLanguages"));
 		jObj.addProperty(KEY_AUDIO_REMUX_AC3, true);
 		jObj.addProperty(KEY_AUDIO_RESAMPLE, true);
 		jObj.addProperty(KEY_AUDIO_SUB_LANGS, "");
@@ -5587,6 +5728,7 @@ public class UmsConfiguration extends BaseConfiguration {
 		jObj.addProperty(KEY_CHROMECAST_EXT, false);
 		jObj.addProperty(KEY_DISABLE_SUBTITLES, false);
 		jObj.addProperty(KEY_DISABLE_TRANSCODE_FOR_EXTENSIONS, "");
+		jObj.addProperty(KEY_DISABLE_TRANSCODING, false);
 		jObj.addProperty(KEY_OPEN_ARCHIVES, false);
 		jObj.addProperty(KEY_ENCODED_AUDIO_PASSTHROUGH, false);
 		JsonArray transcodingEngines = UmsConfiguration.getAllEnginesAsJsonArray();
@@ -5628,7 +5770,6 @@ public class UmsConfiguration extends BaseConfiguration {
 		jObj.addProperty(KEY_HIDE_EXTENSIONS, true);
 		jObj.addProperty(KEY_SERVER_HOSTNAME, "");
 		jObj.addProperty(KEY_IGNORE_THE_WORD_A_AND_THE, true);
-		jObj.addProperty(KEY_IP_FILTER, "");
 		jObj.addProperty(KEY_LANGUAGE, "en-US");
 		jObj.addProperty(KEY_LIVE_SUBTITLES_KEEP, false);
 		jObj.addProperty(KEY_LIVE_SUBTITLES_LIMIT, 20);
@@ -5671,28 +5812,31 @@ public class UmsConfiguration extends BaseConfiguration {
 		JsonArray allRenderers = new JsonArray();
 		allRenderers.add(RendererConfigurations.ALL_RENDERERS_KEY);
 		jObj.add(KEY_SELECTED_RENDERERS, allRenderers);
-		jObj.addProperty(KEY_SERVER_ENGINE, "0");
-		jObj.addProperty(KEY_SERVER_NAME, "Universal Media Server");
+		jObj.addProperty(KEY_SERVER_NAME, PMS.NAME);
 		jObj.addProperty(KEY_SHOW_LIVE_SUBTITLES_FOLDER, false);
 		jObj.addProperty(KEY_SHOW_MEDIA_LIBRARY_FOLDER, true);
 		jObj.addProperty(KEY_SHOW_RECENTLY_PLAYED_FOLDER, true);
 		jObj.addProperty(KEY_SHOW_SERVER_SETTINGS_FOLDER, false);
 		jObj.addProperty(KEY_SHOW_SPLASH_SCREEN, true);
 		jObj.addProperty(KEY_SHOW_TRANSCODE_FOLDER, true);
-		jObj.addProperty(KEY_SORT_METHOD, "4");
+		jObj.addProperty(KEY_SHOW_USER_CHOICE, true);
+		jObj.addProperty(KEY_SORT_METHOD, "0");
 		jObj.addProperty(KEY_SUBS_INFO_LEVEL, "basic");
 		jObj.addProperty(KEY_SUBTITLES_CODEPAGE, "");
-		jObj.addProperty(KEY_SUBTITLES_LANGUAGES, Messages.getString("SubtitlesLanguages"));
+		jObj.addProperty(KEY_SUBTITLES_LANGUAGES, Messages.getConfigurationString("SubtitlesLanguages"));
 		jObj.addProperty(KEY_SUBS_COLOR, "0xFFFFFFFF");
 		jObj.addProperty(KEY_SUBS_FONT, "");
 		jObj.addProperty(KEY_ASS_MARGIN, 10);
 		jObj.addProperty(KEY_ASS_SCALE, 1.4);
 		jObj.addProperty(KEY_ASS_SHADOW, 1);
 		jObj.addProperty(KEY_THUMBNAIL_SEEK_POS, 4);
+		jObj.addProperty(KEY_TMDB_API_KEY, "");
 		jObj.addProperty(KEY_UPNP_ENABLED, true);
+		jObj.addProperty(KEY_UPNP_JUPNP_DIDL, false);
+		jObj.addProperty(KEY_UPNP_LOG_LEVEL, "1");
+		jObj.addProperty(KEY_USE_API_INFO, true);
 		jObj.addProperty(KEY_USE_EMBEDDED_SUBTITLES_STYLE, true);
-		jObj.addProperty(KEY_USE_CACHE, true);
-		jObj.addProperty(KEY_USE_IMDB_INFO, true);
+		jObj.addProperty(KEY_USE_TMDB_INFO, true);
 		jObj.addProperty(KEY_USE_SYMLINKS_TARGET_FILE, true);
 		jObj.addProperty(KEY_VLC_AUDIO_SYNC_ENABLED, false);
 		jObj.addProperty(KEY_VLC_USE_EXPERIMENTAL_CODECS, false);

@@ -16,8 +16,8 @@
  */
 package net.pms.renderers.devices.players;
 
-import net.pms.dlna.DLNAResource;
 import net.pms.renderers.Renderer;
+import net.pms.store.StoreItem;
 import net.pms.util.UMSUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,11 +32,11 @@ public class PlaybackTimer extends MinimalPlayer {
 
 	@Override
 	public void start() {
-		final DLNAResource res = renderer.getPlayingRes();
+		final StoreItem res = renderer.getPlayingRes();
 		state.setName(res.getDisplayName());
 		final long duration;
-		if (res.getMedia() != null) {
-			duration = (long) res.getMedia().getDurationInSeconds() * 1000;
+		if (res.getMediaInfo() != null) {
+			duration = (long) res.getMediaInfo().getDurationInSeconds() * 1000;
 			state.setDuration(duration);
 		} else {
 			duration = 0;
@@ -44,11 +44,8 @@ public class PlaybackTimer extends MinimalPlayer {
 		Runnable r = () -> {
 			state.setPlayback(PlayerState.PLAYING);
 			while (res == renderer.getPlayingRes()) {
-				long elapsed;
-				if ((long) res.getLastStartPosition() == 0) {
-					elapsed = System.currentTimeMillis() - res.getStartTime();
-				} else {
-					elapsed = System.currentTimeMillis() - (long) res.getLastStartSystemTime();
+				long elapsed = System.currentTimeMillis() - res.getLastStartSystemTime();
+				if ((long) res.getLastStartPosition() != 0) {
 					elapsed += (long) (res.getLastStartPosition() * 1000);
 				}
 

@@ -26,7 +26,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import net.pms.Messages;
 import net.pms.configuration.UmsConfiguration;
-import net.pms.dlna.DLNAResource;
 import net.pms.formats.Format;
 import net.pms.io.IPipeProcess;
 import net.pms.io.ListProcessWrapperResult;
@@ -35,8 +34,9 @@ import net.pms.io.ProcessWrapper;
 import net.pms.io.ProcessWrapperImpl;
 import net.pms.io.SimpleProcessWrapper;
 import net.pms.media.MediaInfo;
+import net.pms.network.HTTPResource;
 import net.pms.platform.PlatformUtils;
-import net.pms.renderers.Renderer;
+import net.pms.store.StoreItem;
 import net.pms.util.ExecutableErrorType;
 import net.pms.util.ExecutableInfo;
 import net.pms.util.ExecutableInfo.ExecutableInfoBuilder;
@@ -95,8 +95,8 @@ public class VideoLanVideoStreaming extends Engine {
 	}
 
 	@Override
-	public String mimeType() {
-		return "video/mpeg";
+	public String getMimeType() {
+		return HTTPResource.MPEG_TYPEMIME;
 	}
 
 	protected String getEncodingArgs() {
@@ -125,14 +125,13 @@ public class VideoLanVideoStreaming extends Engine {
 
 	@Override
 	public ProcessWrapper launchTranscode(
-		DLNAResource dlna,
+		StoreItem resource,
 		MediaInfo media,
 		OutputParams params) throws IOException {
 		// Use device-specific pms conf
-		UmsConfiguration prev = configuration;
-		configuration = params.getMediaRenderer().getUmsConfiguration();
+		UmsConfiguration configuration = params.getMediaRenderer().getUmsConfiguration();
 		boolean isWindows = Platform.isWindows();
-		final String filename = dlna.getFileName();
+		final String filename = resource.getFileName();
 		IPipeProcess tsPipe = PlatformUtils.INSTANCE.getPipeProcess("VLC" + System.currentTimeMillis() + "." + getMux());
 		ProcessWrapper pipeProcess = tsPipe.getPipeProcess();
 
@@ -198,23 +197,22 @@ public class VideoLanVideoStreaming extends Engine {
 		UMSUtils.sleep(150);
 
 		pw.runInNewThread();
-		configuration = prev;
 		return pw;
 	}
 
 	@Override
-	public boolean isCompatible(DLNAResource resource) {
-		return PlayerUtil.isWebVideo(resource);
+	public boolean isCompatible(StoreItem item) {
+		return PlayerUtil.isWebVideo(item);
+	}
+
+	@Override
+	public boolean isCompatible(EncodingFormat encodingFormat) {
+		return encodingFormat.isVideoFormat() && !encodingFormat.isTranscodeToHLS();
 	}
 
 	@Override
 	public boolean excludeFormat(Format extension) {
 		return false;
-	}
-
-	@Override
-	public boolean isEngineCompatible(Renderer renderer) {
-		return true;
 	}
 
 	@Override
@@ -246,7 +244,7 @@ public class VideoLanVideoStreaming extends Engine {
 					return result.build();
 				}
 				if (output.getExitCode() == 0) {
-					if (output.getOutput() != null && output.getOutput().size() > 0) {
+					if (!output.getOutput().isEmpty()) {
 						Pattern pattern = Pattern.compile("VLC version\\s+[^\\(]*\\(([^\\)]*)", Pattern.CASE_INSENSITIVE);
 						Matcher matcher = pattern.matcher(output.getOutput().get(0));
 						if (matcher.find() && isNotBlank(matcher.group(1))) {
@@ -260,6 +258,7 @@ public class VideoLanVideoStreaming extends Engine {
 					result.available(Boolean.FALSE);
 				}
 			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
 				return null;
 			}
 		}
@@ -271,7 +270,7 @@ public class VideoLanVideoStreaming extends Engine {
 				result.available(Boolean.FALSE);
 				LOGGER.warn(String.format(Messages.getRootString("OnlyVersionXAboveSupported"), requiredVersion, this));
 			}
-		} else if (result.available() != null && result.available().booleanValue()) {
+		} else if (Boolean.TRUE.equals(result.available())) {
 			LOGGER.warn("Could not parse VLC version, the version might be too low (< 2.0.2)");
 		}
 		return result.build();
@@ -281,4 +280,5 @@ public class VideoLanVideoStreaming extends Engine {
 	protected boolean isSpecificTest() {
 		return false;
 	}
+
 }

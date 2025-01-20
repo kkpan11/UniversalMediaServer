@@ -19,24 +19,27 @@ package net.pms.configuration;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
-import java.util.Map.Entry;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.StringTokenizer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import net.pms.Messages;
 import net.pms.PMS;
-import net.pms.dlna.DLNAResource;
+import net.pms.encoders.EncodingFormat;
 import net.pms.formats.Format;
 import net.pms.formats.Format.Identifier;
-import net.pms.formats.v2.AudioProperties;
-import net.pms.media.audio.MediaAudio;
 import net.pms.media.MediaInfo;
+import net.pms.media.audio.MediaAudio;
 import net.pms.media.subtitle.MediaSubtitle;
 import net.pms.media.video.MediaVideo.Mode3D;
-import net.pms.network.HTTPResource;
 import net.pms.parsers.MediaInfoParser;
-import net.pms.platform.PlatformUtils;
 import net.pms.renderers.Renderer;
+import net.pms.store.StoreItem;
+import net.pms.store.StoreResource;
 import net.pms.util.FileWatcher;
 import net.pms.util.SortedHeaderMap;
 import net.pms.util.StringUtil;
@@ -58,32 +61,35 @@ public class RendererConfiguration extends BaseConfiguration {
 	 * renderer configuration property keys.
 	 */
 	private static final String KEY_ACCURATE_DLNA_ORGPN = "AccurateDLNAOrgPN";
+	private static final String KEY_ALBUM_ART_PROFILE = "AlbumArtProfile";
 	private static final String KEY_AUDIO = "Audio";
-	private static final String KEY_AUTO_PLAY_TMO = "AutoPlayTmo";
+	protected static final String KEY_AUTO_PLAY_TMO = "AutoPlayTmo";
 	private static final String KEY_AVISYNTH_2D_TO_3D = "AviSynth2Dto3D";
 	private static final String KEY_BYTE_TO_TIMESEEK_REWIND_SECONDS = "ByteToTimeseekRewindSeconds";
 	private static final String KEY_CBR_VIDEO_BITRATE = "CBRVideoBitrate";
 	private static final String KEY_CHARMAP = "CharMap";
 	private static final String KEY_CHUNKED_TRANSFER = "ChunkedTransfer";
+	private static final String KEY_CUSTOM_FFMPEG_AUDIO_OPTIONS = "CustomFFmpegAudioOptions";
 	private static final String KEY_CUSTOM_FFMPEG_OPTIONS = "CustomFFmpegOptions";
 	private static final String KEY_CUSTOM_MENCODER_OPTIONS = "CustomMencoderOptions";
 	private static final String KEY_CUSTOM_MENCODER_MPEG2_OPTIONS = "CustomMEncoderMPEG2Options";
 	private static final String KEY_DEFAULT_VBV_BUFSIZE = "DefaultVBVBufSize";
-	protected static final String KEY_DEVICE_ID = "Device";
+	private static final String KEY_DEVICE_ID = "Device";
 	private static final String KEY_DISABLE_MENCODER_NOSKIP = "DisableMencoderNoskip";
 	private static final String KEY_DLNA_LOCALIZATION_REQUIRED = "DLNALocalizationRequired";
 	private static final String KEY_DLNA_ORGPN_USE = "DLNAOrgPN";
-	private static final String KEY_DLNA_PN_CHANGES = "DLNAProfileChanges";
+	private static final String KEY_DLNA_PROFILE_CHANGES = "DLNAProfileChanges";
 	private static final String KEY_DLNA_TREE_HACK = "CreateDLNATreeFaster";
 	private static final String KEY_HALVE_BITRATE = "HalveBitrate";
-	private static final String KEY_H264_L41_LIMITED = "H264Level41Limited";
+	private static final String KEY_H264_LEVEL_LIMIT = "H264LevelLimit";
+	private static final String KEY_H265_LEVEL_LIMIT = "H265LevelLimit";
 	protected static final String KEY_HLS_MULTI_VIDEO_QUALITY = "HlsMultiVideoQuality";
 	protected static final String KEY_HLS_VERSION = "HlsVersion";
 	private static final String KEY_IGNORE_TRANSCODE_BYTE_RANGE_REQUEST = "IgnoreTranscodeByteRangeRequests";
 	private static final String KEY_IMAGE = "Image";
 	private static final String KEY_KEEP_ASPECT_RATIO = "KeepAspectRatio";
 	private static final String KEY_KEEP_ASPECT_RATIO_TRANSCODING = "KeepAspectRatioTranscoding";
-	private static final String KEY_LIMIT_FOLDERS = "LimitFolders";
+	protected static final String KEY_LIMIT_FOLDERS = "LimitFolders";
 	private static final String KEY_LOADING_PRIORITY = "LoadingPriority";
 	private static final String KEY_MAX_VIDEO_BITRATE = "MaxVideoBitrateMbps";
 	private static final String KEY_MAX_VIDEO_HEIGHT = "MaxVideoHeight";
@@ -93,7 +99,6 @@ public class RendererConfiguration extends BaseConfiguration {
 	protected static final String KEY_MEDIAPARSERV2_THUMB = "MediaParserV2_ThumbnailGeneration";
 	private static final String KEY_MIME_TYPES_CHANGES = "MimeTypesChanges";
 	private static final String KEY_MUX_DTS_TO_MPEG = "MuxDTSToMpeg";
-	private static final String KEY_MUX_H264_WITH_MPEGTS = "MuxH264ToMpegTS";
 	private static final String KEY_MUX_LPCM_TO_MPEG = "MuxLPCMToMpeg";
 	private static final String KEY_MUX_NON_MOD4_RESOLUTION = "MuxNonMod4Resolution";
 	private static final String KEY_OFFER_SUBTITLES_BY_PROTOCOL_INFO = "OfferSubtitlesByProtocolInfo";
@@ -108,6 +113,8 @@ public class RendererConfiguration extends BaseConfiguration {
 	private static final String KEY_RENDERER_NAME = "RendererName";
 	private static final String KEY_RESCALE_BY_RENDERER = "RescaleByRenderer";
 	private static final String KEY_SEEK_BY_TIME = "SeekByTime";
+	private static final String KEY_NEED_ALBUM_ART_HACK = "NeedAlbumArtHack";
+	private static final String KEY_NEED_VERSIONED_OBJECT_ID = "NeedVersionedObjectId";
 	private static final String KEY_SEND_DATE_METADATA = "SendDateMetadata";
 	private static final String KEY_SEND_DATE_METADATA_YEAR_FOR_AUDIO_TAGS = "SendDateMetadataYearForAudioTags";
 	private static final String KEY_SEND_DLNA_ORG_FLAGS = "SendDLNAOrgFlags";
@@ -145,34 +152,6 @@ public class RendererConfiguration extends BaseConfiguration {
 	private static final String KEY_DISABLE_UMS_RESUME = "DisableUmsResume";
 	private static final String KEY_UPNP_ENABLE_SEARCHCAPS = "UpnpSearchCapsEnabled";
 
-	/**
-	 * audio transcoding options.
-	 */
-	private static final String TRANSCODE_TO_LPCM = "LPCM";
-	protected static final String TRANSCODE_TO_MP3 = "MP3";
-	private static final String TRANSCODE_TO_WAV = "WAV";
-	private static final String TRANSCODE_TO_WMV = "WMV";
-
-	/**
-	 * video transcoding options.
-	 */
-	private static final String MPEGTSH264AAC = "MPEGTS-H264-AAC";
-	private static final String MPEGTSH264AC3 = "MPEGTS-H264-AC3";
-	private static final String MPEGTSH265AAC = "MPEGTS-H265-AAC";
-	private static final String MPEGTSH265AC3 = "MPEGTS-H265-AC3";
-	private static final String MPEGPSMPEG2AC3 = "MPEGPS-MPEG2-AC3";
-	private static final String MPEGTSMPEG2AC3 = "MPEGTS-MPEG2-AC3";
-	//HLS (HTTP Live Streaming) encapsulated by MPEG-2 Transport Stream
-	protected static final String HLSMPEGTSH264AAC = "HLS-MPEGTS-H264-AAC";
-	private static final String HLSMPEGTSH264AC3 = "HLS-MPEGTS-H264-AC3";
-	//private static final String HLSMPEGTSH264MP3 = "HLS-MPEGTS-H264-MP3";
-	//private static final String HLSMPEGTSH264EAC3 = "HLS-MPEGTS-H264-EAC3";
-	//HLS (HTTP Live Streaming) encapsulated by MPEG-4_Part_14
-	//private static final String HLSMPEG4H264AAC = "HLS-MPEG4-H264-AAC";
-	//private static final String HLSMPEG4H264AC3 = "HLS-MPEG4-H264-AC3";
-	//private static final String HLSMPEG4H264MP3 = "HLS-MPEG4-H264-MP3";
-	//private static final String HLSMPEG4H264EAC3 = "HLS-MPEG4-H264-EAC3";
-
 	public static final File NOFILE = new File("NOFILE");
 	public static final String UNKNOWN_ICON = "unknown.png";
 
@@ -191,7 +170,7 @@ public class RendererConfiguration extends BaseConfiguration {
 	private Map<String, String> mimes;
 
 	private Map<String, String> charMap;
-	private Map<String, String> dLNAPN;
+	private Map<String, String> dlnaProfiles;
 
 	// TextWrap parameters
 	private int lineWidth;
@@ -375,19 +354,19 @@ public class RendererConfiguration extends BaseConfiguration {
 			}
 		}
 
-		dLNAPN = new HashMap<>();
-		String dLNAPNchanges = getString(KEY_DLNA_PN_CHANGES, "");
+		dlnaProfiles = new HashMap<>();
+		String dlnaProfileChanges = getString(KEY_DLNA_PROFILE_CHANGES, "");
 
-		if (StringUtils.isNotBlank(dLNAPNchanges)) {
-			LOGGER.trace("Config dLNAPNchanges: " + dLNAPNchanges);
-			StringTokenizer st = new StringTokenizer(dLNAPNchanges, "|");
+		if (StringUtils.isNotBlank(dlnaProfileChanges)) {
+			LOGGER.trace("Config dlnaProfileChanges: " + dlnaProfileChanges);
+			StringTokenizer st = new StringTokenizer(dlnaProfileChanges, "|");
 			while (st.hasMoreTokens()) {
 				String dLNAPNChange = st.nextToken().trim();
 				int equals = dLNAPNChange.indexOf('=');
 				if (equals > -1) {
 					String old = dLNAPNChange.substring(0, equals).trim().toUpperCase();
 					String nw = dLNAPNChange.substring(equals + 1).trim().toUpperCase();
-					dLNAPN.put(old, nw);
+					dlnaProfiles.put(old, nw);
 				}
 			}
 		}
@@ -419,12 +398,12 @@ public class RendererConfiguration extends BaseConfiguration {
 		loaded = false;
 	}
 
-	public String getDLNAPN(String old) {
-		if (dLNAPN.containsKey(old)) {
-			return dLNAPN.get(old);
+	public String getDlnaProfileId(String profile) {
+		if (dlnaProfiles.containsKey(profile)) {
+			return dlnaProfiles.get(profile);
 		}
 
-		return old;
+		return profile;
 	}
 
 	public boolean supportsFormat(Format f) {
@@ -448,115 +427,14 @@ public class RendererConfiguration extends BaseConfiguration {
 		return getBoolean(KEY_IMAGE, true);
 	}
 
-	public boolean isTranscodeToWMV() {
-		return getVideoTranscode().equals(TRANSCODE_TO_WMV);
-	}
-
-	public boolean isTranscodeToMPEGPSMPEG2AC3() {
-		String videoTranscode = getVideoTranscode();
-		return videoTranscode.equals(MPEGPSMPEG2AC3);
-	}
-
-	public boolean isTranscodeToMPEGTSMPEG2AC3() {
-		String videoTranscode = getVideoTranscode();
-		return videoTranscode.equals(MPEGTSMPEG2AC3);
-	}
-
-	public boolean isTranscodeToMPEGTSH264AC3() {
-		String videoTranscode = getVideoTranscode();
-		return videoTranscode.equals(MPEGTSH264AC3);
-	}
-
-	public boolean isTranscodeToMPEGTSH264AAC() {
-		return getVideoTranscode().equals(MPEGTSH264AAC);
-	}
-
-	public boolean isTranscodeToMPEGTSH265AAC() {
-		return getVideoTranscode().equals(MPEGTSH265AAC);
-	}
-
-	public boolean isTranscodeToMPEGTSH265AC3() {
-		return getVideoTranscode().equals(MPEGTSH265AC3);
-	}
-
-	public boolean isTranscodeToHLSMPEGTSH264AAC() {
-		return getVideoTranscode().equals(HLSMPEGTSH264AAC);
-	}
-
-	public boolean isTranscodeToHLSMPEGTSH264AC3() {
-		return getVideoTranscode().equals(HLSMPEGTSH264AC3);
-	}
-
-	/**
-	 * @return whether to use the HLS format for transcoded video
-	 */
-	public boolean isTranscodeToHLS() {
-		return isTranscodeToHLSMPEGTSH264AAC() || isTranscodeToHLSMPEGTSH264AC3();
-	}
-
-	/**
-	 * @return whether to use the AC-3 audio codec for transcoded video
-	 */
-	public boolean isTranscodeToAC3() {
-		return isTranscodeToMPEGPSMPEG2AC3() || isTranscodeToMPEGTSMPEG2AC3() || isTranscodeToMPEGTSH264AC3() || isTranscodeToMPEGTSH265AC3() || isTranscodeToHLSMPEGTSH264AC3();
-	}
-
-	/**
-	 * @return whether to use the AAC audio codec for transcoded video
-	 */
-	public boolean isTranscodeToAAC() {
-		return isTranscodeToMPEGTSH264AAC() || isTranscodeToMPEGTSH265AAC() || isTranscodeToHLSMPEGTSH264AAC();
-	}
-
-	/**
-	 * @return whether to use the H.264 video codec for transcoded video
-	 */
-	public boolean isTranscodeToH264() {
-		return isTranscodeToMPEGTSH264AAC() || isTranscodeToMPEGTSH264AC3() || isTranscodeToHLSMPEGTSH264AAC() || isTranscodeToHLSMPEGTSH264AC3();
-	}
-
-	/**
-	 * @return whether to use the H.265 video codec for transcoded video
-	 */
-	public boolean isTranscodeToH265() {
-		return isTranscodeToMPEGTSH265AAC() || isTranscodeToMPEGTSH265AC3();
-	}
-
-	/**
-	 * @return whether to use the MPEG-TS container for transcoded video
-	 */
-	public boolean isTranscodeToMPEGTS() {
-		return isTranscodeToMPEGTSMPEG2AC3() || isTranscodeToMPEGTSH264AC3() || isTranscodeToMPEGTSH264AAC() || isTranscodeToMPEGTSH265AC3() || isTranscodeToMPEGTSH265AAC() || isTranscodeToHLSMPEGTSH264AAC() || isTranscodeToHLSMPEGTSH264AC3();
-	}
-
-	/**
-	 * @return whether to use the MPEG-TS container for transcoded video
-	 */
-	public String getTranscodingContainer() {
-		String transcodingContainer = FormatConfiguration.MPEGPS;
-		if (isTranscodeToMPEGTS()) {
-			transcodingContainer = FormatConfiguration.MPEGTS;
+	public List<EncodingFormat> getTranscodingFormats() {
+		List<EncodingFormat> encodingFormats = new ArrayList<>();
+		encodingFormats.addAll(EncodingFormat.getVideoEncodingFormats(getVideoTranscode()));
+		EncodingFormat audioFormat = EncodingFormat.getAudioEncodingFormat(getAudioTranscode());
+		if (audioFormat != null) {
+			encodingFormats.add(audioFormat);
 		}
-		return transcodingContainer;
-	}
-
-	/**
-	 * @return whether to use the MPEG-2 video codec for transcoded video
-	 */
-	public boolean isTranscodeToMPEG2() {
-		return isTranscodeToMPEGTSMPEG2AC3() || isTranscodeToMPEGPSMPEG2AC3();
-	}
-
-	public boolean isTranscodeToMP3() {
-		return getAudioTranscode().equals(TRANSCODE_TO_MP3);
-	}
-
-	public boolean isTranscodeToLPCM() {
-		return getAudioTranscode().equals(TRANSCODE_TO_LPCM);
-	}
-
-	public boolean isTranscodeToWAV() {
-		return getAudioTranscode().equals(TRANSCODE_TO_WAV);
+		return encodingFormats;
 	}
 
 	public boolean isTranscodeAudioTo441() {
@@ -564,10 +442,17 @@ public class RendererConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * @return whether to transcode H.264 video if it exceeds level 4.1
+	 * @return The maximum H.264 level supported by the renderer.
 	 */
-	public boolean isH264Level41Limited() {
-		return getBoolean(KEY_H264_L41_LIMITED, true);
+	public double getH264LevelLimit() {
+		return getDouble(KEY_H264_LEVEL_LIMIT, 4.1);
+	}
+
+	/**
+	 * @return The maximum H.265 level supported by the renderer.
+	 */
+	public double getH265LevelLimit() {
+		return getDouble(KEY_H265_LEVEL_LIMIT, 4.1);
 	}
 
 	public boolean isTranscodeFastStart() {
@@ -594,17 +479,28 @@ public class RendererConfiguration extends BaseConfiguration {
 	 * one step in the process.
 	 *
 	 * @param media
+	 * @param encodingFormat the EncodingFormat for transcoding
+	 * @param transcodingContainerOverride override the transcoding container to
+	 *                                     see whether it would be compatible in
+	 *                                     another one
 	 * @return whether this renderer supports the video stream type of this
 	 *         resource inside the container it wants for transcoding.
 	 */
-	public boolean isVideoStreamTypeSupportedInTranscodingContainer(MediaInfo media) {
+	public boolean isVideoStreamTypeSupportedInTranscodingContainer(MediaInfo media, EncodingFormat encodingFormat, String transcodingContainerOverride) {
+		if (media.getDefaultVideoTrack() == null) {
+			return true;
+		}
+
 		if (getFormatConfiguration() == null) {
 			return (
-				(isTranscodeToH264() && media.isH264()) ||
-				(isTranscodeToH265() && media.isH265())
+				(encodingFormat.isTranscodeToH264() && media.getDefaultVideoTrack().isH264()) ||
+				(encodingFormat.isTranscodeToH265() && media.getDefaultVideoTrack().isH265())
 			);
 		}
-		return getFormatConfiguration().getMatchedMIMEtype(getTranscodingContainer(), media.getCodecV(), null) != null;
+
+		String transcodingContainer = transcodingContainerOverride != null ? transcodingContainerOverride : encodingFormat.getTranscodingContainer();
+
+		return getFormatConfiguration().getMatchedMIMEtype(transcodingContainer, media.getDefaultVideoTrack().getCodec(), null) != null;
 	}
 
 	/**
@@ -618,139 +514,18 @@ public class RendererConfiguration extends BaseConfiguration {
 	 * @return whether this renderer supports the audio stream type of this
 	 *         resource inside the container it wants for transcoding.
 	 */
-	public boolean isAudioStreamTypeSupportedInTranscodingContainer(MediaAudio audio) {
+	public boolean isAudioStreamTypeSupportedInTranscodingContainer(MediaAudio audio, EncodingFormat encodingFormat) {
 		if (getFormatConfiguration() == null) {
 			return (
-				(isTranscodeToAAC() && audio.isAACLC()) ||
-				(isTranscodeToAC3() && audio.isAC3())
+				(encodingFormat.isTranscodeToAAC() && audio.isAACLC()) ||
+				(encodingFormat.isTranscodeToAC3() && audio.isAC3())
 			);
 		}
-		return getFormatConfiguration().getMatchedMIMEtype(getTranscodingContainer(), null, audio.getCodecA()) != null;
+		return getFormatConfiguration().getMatchedMIMEtype(encodingFormat.getTranscodingContainer(), null, audio.getCodec()) != null;
 	}
 
-	/**
-	 * Determine the mime type specific for this renderer, given a generic mime
-	 * type by resource. This translation takes into account all configured "Supported"
-	 * lines and mime type aliases for this renderer.
-	 *
-	 * @param resource The resource with the generic mime type.
-	 * @return The renderer specific mime type  for given resource. If the generic mime
-	 * type given by resource is <code>null</code> this method returns <code>null</code>.
-	 */
-	public String getMimeType(DLNAResource resource) {
-		String mimeType = resource.mimeType();
-		if (mimeType == null) {
-			return null;
-		}
-
-		String matchedMimeType = null;
-		MediaInfo media = resource.getMedia();
-
-		if (isUseMediaInfo()) {
-			// Use the supported information in the configuration to determine the transcoding mime type.
-			if (HTTPResource.VIDEO_TRANSCODE.equals(mimeType)) {
-				if (isTranscodeToHLSMPEGTSH264AC3()) {
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.MPEGTS_HLS, FormatConfiguration.H264, FormatConfiguration.AC3);
-				} else if (isTranscodeToHLSMPEGTSH264AAC()) {
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.MPEGTS_HLS, FormatConfiguration.H264, FormatConfiguration.AAC_LC);
-				} else if (isTranscodeToMPEGTSH264AC3()) {
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.MPEGTS, FormatConfiguration.H264, FormatConfiguration.AC3);
-				} else if (isTranscodeToMPEGTSH264AAC()) {
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.MPEGTS, FormatConfiguration.H264, FormatConfiguration.AAC_LC);
-				} else if (isTranscodeToMPEGTSH265AC3()) {
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.MPEGTS, FormatConfiguration.H265, FormatConfiguration.AC3);
-				} else if (isTranscodeToMPEGTSH265AAC()) {
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.MPEGTS, FormatConfiguration.H265, FormatConfiguration.AAC_LC);
-				} else if (isTranscodeToMPEGTSMPEG2AC3()) {
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.MPEGTS, FormatConfiguration.MPEG2, FormatConfiguration.AC3);
-				} else if (isTranscodeToWMV()) {
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.WMV, FormatConfiguration.WMV, FormatConfiguration.WMA);
-				} else {
-					// Default video transcoding mime type
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.MPEGPS, FormatConfiguration.MPEG2, FormatConfiguration.AC3);
-				}
-			} else if (HTTPResource.AUDIO_TRANSCODE.equals(mimeType)) {
-				if (isTranscodeToWAV()) {
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.WAV, null, null);
-				} else if (isTranscodeToMP3()) {
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.MP3, null, null);
-				} else {
-					// Default audio transcoding mime type
-					matchedMimeType = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.LPCM, null, null);
-
-					if (matchedMimeType != null) {
-						if (umsConfiguration.isAudioResample()) {
-							if (isTranscodeAudioTo441()) {
-								matchedMimeType += ";rate=44100;channels=2";
-							} else {
-								matchedMimeType += ";rate=48000;channels=2";
-							}
-						} else if (media != null && media.getFirstAudioTrack() != null) {
-							AudioProperties audio = media.getFirstAudioTrack().getAudioProperties();
-							if (audio.getSampleFrequency() > 0) {
-								matchedMimeType += ";rate=" + Integer.toString(audio.getSampleFrequency());
-							}
-							if (audio.getNumberOfChannels() > 0) {
-								matchedMimeType += ";channels=" + Integer.toString(audio.getNumberOfChannels());
-							}
-						}
-					}
-				}
-			}
-		}
-
-		if (matchedMimeType == null) {
-			// No match found in the renderer config, try our defaults
-			if (HTTPResource.VIDEO_TRANSCODE.equals(mimeType)) {
-				if (isTranscodeToWMV()) {
-					matchedMimeType = HTTPResource.WMV_TYPEMIME;
-				} else if (isTranscodeToHLS()) {
-					matchedMimeType = HTTPResource.HLS_TYPEMIME;
-				} else if (isTranscodeToMPEGTS()) {
-					// Default video transcoding mime type
-					matchedMimeType = HTTPResource.MPEGTS_TYPEMIME;
-				} else {
-					// Default video transcoding mime type
-					matchedMimeType = HTTPResource.MPEG_TYPEMIME;
-				}
-			} else if (HTTPResource.AUDIO_TRANSCODE.equals(mimeType)) {
-				if (isTranscodeToWAV()) {
-					matchedMimeType = HTTPResource.AUDIO_WAV_TYPEMIME;
-				} else if (isTranscodeToMP3()) {
-					matchedMimeType = HTTPResource.AUDIO_MP3_TYPEMIME;
-				} else {
-					// Default audio transcoding mime type
-					matchedMimeType = HTTPResource.AUDIO_LPCM_TYPEMIME;
-
-					if (umsConfiguration.isAudioResample()) {
-						if (isTranscodeAudioTo441()) {
-							matchedMimeType += ";rate=44100;channels=2";
-						} else {
-							matchedMimeType += ";rate=48000;channels=2";
-						}
-					} else if (media != null && media.getFirstAudioTrack() != null) {
-						AudioProperties audio = media.getFirstAudioTrack().getAudioProperties();
-						if (audio.getSampleFrequency() > 0) {
-							matchedMimeType += ";rate=" + Integer.toString(audio.getSampleFrequency());
-						}
-						if (audio.getNumberOfChannels() > 0) {
-							matchedMimeType += ";channels=" + Integer.toString(audio.getNumberOfChannels());
-						}
-					}
-				}
-			}
-		}
-
-		if (matchedMimeType == null) {
-			matchedMimeType = mimeType;
-		}
-
-		// Apply renderer specific mime type aliases
-		if (mimes.containsKey(matchedMimeType)) {
-			return mimes.get(matchedMimeType);
-		}
-
-		return matchedMimeType;
+	public Map<String, String> getMimeTranslations() {
+		return mimes;
 	}
 
 	public boolean matchUPNPDetails(String details) {
@@ -820,11 +595,11 @@ public class RendererConfiguration extends BaseConfiguration {
 	}
 
 	public String getConfName() {
-		return getString(KEY_RENDERER_NAME, Messages.getString("UnknownRenderer"));
+		return getString(KEY_RENDERER_NAME, "UnknownRenderer");
 	}
 
 	/**
-	 * Returns the icon to use for displaying this renderer in PMS as defined
+	 * Returns the icon to use for displaying this renderer in UMS as defined
 	 * in the renderer configurations.
 	 * Default value is UNKNOWN_ICON.
 	 *
@@ -882,41 +657,61 @@ public class RendererConfiguration extends BaseConfiguration {
 		return file;
 	}
 
+	private String getTranscodeSeekBy() {
+		return getString(KEY_SEEK_BY_TIME, "false");
+	}
+
 	/**
-	 * Returns true if SeekByTime is set to "true" or "exclusive", false otherwise.
-	 * Default value is false.
+	 * Returns true if SeekByTime is set to "false", false otherwise. Default
+	 * value is true.
 	 *
-	 * @return true if the renderer supports seek-by-time, false otherwise.
+	 * @return true if the renderer supports seek-by-byte exclusively, false
+	 * otherwise.
 	 */
-	public boolean isSeekByTime() {
-		return isSeekByTimeExclusive() || getString(KEY_SEEK_BY_TIME, "false").equalsIgnoreCase("true");
+	public boolean isTranscodeSeekByByteExclusive() {
+		return getTranscodeSeekBy().equalsIgnoreCase("false");
+	}
+
+	/**
+	 * Returns true if SeekByTime is set to "true", false otherwise. Default
+	 * value is false.
+	 *
+	 * @return true if the renderer supports seek-by-byte and seek-by-time,
+	 * false otherwise.
+	 */
+	public boolean isTranscodeSeekByBoth() {
+		return getTranscodeSeekBy().equalsIgnoreCase("true");
 	}
 
 	/**
 	 * Returns true if SeekByTime is set to "exclusive", false otherwise.
 	 * Default value is false.
 	 *
-	 * @return true if the renderer supports seek-by-time exclusively
-	 * (i.e. not in conjunction with seek-by-byte), false otherwise.
+	 * @return true if the renderer supports seek-by-time exclusively (i.e. not
+	 * in conjunction with seek-by-byte), false otherwise.
 	 */
-	public boolean isSeekByTimeExclusive() {
-		return getString(KEY_SEEK_BY_TIME, "false").equalsIgnoreCase("exclusive");
+	public boolean isTranscodeSeekByTimeExclusive() {
+		return getTranscodeSeekBy().equalsIgnoreCase("exclusive");
 	}
 
 	/**
-	 * @return {boolean} whether the renderer supports H.264 inside MPEG-TS
+	 * Returns true if SeekByTime is set to "false" or "true", false otherwise.
+	 * Default value is true.
+	 *
+	 * @return true if the renderer supports seek-by-byte, false otherwise.
 	 */
-	public boolean isMuxH264MpegTS() {
-		boolean muxCompatible = getBoolean(KEY_MUX_H264_WITH_MPEGTS, true);
-		if (isUseMediaInfo()) {
-			muxCompatible = getFormatConfiguration().getMatchedMIMEtype(FormatConfiguration.MPEGTS, FormatConfiguration.H264, null) != null;
-		}
+	public boolean isTranscodeSeekByByte() {
+		return isTranscodeSeekByByteExclusive() || isTranscodeSeekByBoth();
+	}
 
-		if (!PlatformUtils.INSTANCE.isTsMuxeRCompatible()) {
-			muxCompatible = false;
-		}
-
-		return muxCompatible;
+	/**
+	 * Returns true if SeekByTime is set to "exclusive" or "true", false
+	 * otherwise. Default value is false.
+	 *
+	 * @return true if the renderer supports seek-by-time, false otherwise.
+	 */
+	public boolean isTranscodeSeekByTime() {
+		return isTranscodeSeekByTimeExclusive() || isTranscodeSeekByBoth();
 	}
 
 	public boolean isDTSPlayable() {
@@ -975,23 +770,27 @@ public class RendererConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Returns the codec to use for video transcoding for this renderer as
-	 * defined in the renderer configuration. Default value is "MPEGPSMPEG2AC3".
+	 * Returns the formats to use for video transcoding for this renderer as
+	 * defined in the renderer configuration.
 	 *
-	 * @return The codec name.
+	 * Default value is "MPEGPS-MPEG2-AC3".
+	 *
+	 * @return The video transcoding format list.
 	 */
-	public String getVideoTranscode() {
-		return getString(KEY_TRANSCODE_VIDEO, MPEGPSMPEG2AC3);
+	public List<String> getVideoTranscode() {
+		return getStringList(KEY_TRANSCODE_VIDEO, "MPEGPS-MPEG2-AC3");
 	}
 
 	/**
-	 * Returns the codec to use for audio transcoding for this renderer as
-	 * defined in the renderer configuration. Default value is "LPCM".
+	 * Returns the format to use for audio transcoding for this renderer as
+	 * defined in the renderer configuration.
 	 *
-	 * @return The codec name.
+	 * Default value is "LPCM".
+	 *
+	 * @return The audio transcoding format list.
 	 */
 	public String getAudioTranscode() {
-		return getString(KEY_TRANSCODE_AUDIO, TRANSCODE_TO_LPCM);
+		return getString(KEY_TRANSCODE_AUDIO, "LPCM");
 	}
 
 	/**
@@ -1044,7 +843,7 @@ public class RendererConfiguration extends BaseConfiguration {
 	}
 
 	/**
-	 * Returns the override settings for MEncoder custom options in PMS as
+	 * Returns the override settings for MEncoder custom options in UMS as
 	 * defined in the renderer configuration. The default value is "".
 	 *
 	 * @return The MEncoder custom options.
@@ -1206,6 +1005,42 @@ public class RendererConfiguration extends BaseConfiguration {
 	}
 
 	/**
+	 * Whether to always send the album art URI.
+	 *
+	 * Some renderers need album art URIs as thumbnail URIs.
+	 *
+	 * @return whether to always send the album art URI
+	 */
+	public boolean needAlbumArtHack() {
+		return getBoolean(KEY_NEED_ALBUM_ART_HACK, true);
+	}
+
+	/**
+	 * The only AlbumArt DLNA Profile to use.
+	 *
+	 * Some renderers only accept one AlbumArt Profile on DIDL.
+	 *
+	 * The default value is "".
+	 *
+	 * @return The only AlbumArt DLNA Profile that will be used.
+	 */
+	public String getAlbumArtProfile() {
+		return getString(KEY_ALBUM_ART_PROFILE, "");
+	}
+
+	/**
+	 * Whether to send the versioned UPnP object id.
+	 *
+	 * Some renderers are buggy getting updated info if normal id is used.
+	 * They store the first info, then keep it.
+	 *
+	 * @return whether to send the versioned UPnP object id.
+	 */
+	public boolean needVersionedObjectId() {
+		return getBoolean(KEY_NEED_VERSIONED_OBJECT_ID, false);
+	}
+
+	/**
 	 * Whether to send the last modified date metadata for files and
 	 * folders, which can take up screen space on some renderers.
 	 *
@@ -1259,30 +1094,25 @@ public class RendererConfiguration extends BaseConfiguration {
 	 * handle a format natively, content can be streamed to the renderer. If
 	 * not, content should be transcoded before sending it to the renderer.
 	 *
-	 * @param dlna The {@link DLNAResource} information parsed from the
+	 * @param resource The {@link StoreItem} information parsed from the
 	 * 				media file.
 	 * @param format The {@link Format} to test compatibility for.
-	 * @param configuration The {@link UmsConfiguration} to use while evaluating compatibility
 	 * @return True if the renderer natively supports the format, false
 	 * 				otherwise.
 	 */
-	public boolean isCompatible(DLNAResource dlna, Format format, UmsConfiguration configuration) {
+	public boolean isCompatible(StoreItem resource, Format format) {
 		MediaInfo mediaInfo;
-		if (dlna != null) {
-			mediaInfo = dlna.getMedia();
+		if (resource != null) {
+			mediaInfo = resource.getMediaInfo();
 		} else {
 			mediaInfo = null;
 		}
 
-		if (configuration == null) {
-			configuration = umsConfiguration;
-		}
-
 		if (
-			configuration != null &&
-			(configuration.isDisableTranscoding() ||
+			umsConfiguration != null &&
+			(umsConfiguration.isDisableTranscoding() ||
 			(format != null &&
-			format.skip(configuration.getDisableTranscodeForExtensions())))
+			format.skip(umsConfiguration.getDisableTranscodeForExtensions())))
 		) {
 			return true;
 		}
@@ -1317,31 +1147,19 @@ public class RendererConfiguration extends BaseConfiguration {
 
 		// Use the configured "Supported" lines in the renderer.conf
 		// to see if any of them match the MediaInfo library
-		if (isUseMediaInfo() && mediaInfo != null && getFormatConfiguration().getMatchedMIMEtype(dlna, this) != null) {
+		if (isUseMediaInfo() && mediaInfo != null && getFormatConfiguration().getMatchedMIMEtype(resource, this) != null) {
 			return true;
 		}
 
 		return format != null && format.skip(getStreamedExtensions());
 	}
 
-	/**
-	 * Returns whether or not the renderer can handle the given format
-	 * natively, based on its configuration in the renderer.conf. If it can
-	 * handle a format natively, content can be streamed to the renderer. If
-	 * not, content should be transcoded before sending it to the renderer.
-	 *
-	 * @param dlna The {@link DLNAResource} information parsed from the
-	 * 				media file.
-	 * @param format The {@link Format} to test compatibility for.
-	 * @return True if the renderer natively supports the format, false
-	 * 				otherwise.
-	 */
-	public boolean isCompatible(DLNAResource dlna, Format format) {
-		return isCompatible(dlna, format, null);
-	}
-
 	public int getAutoPlayTmo() {
 		return getInt(KEY_AUTO_PLAY_TMO, 5000);
+	}
+
+	public String getCustomFFmpegAudioOptions() {
+		return getString(KEY_CUSTOM_FFMPEG_AUDIO_OPTIONS, "");
 	}
 
 	public String getCustomFFmpegOptions() {
@@ -1428,10 +1246,10 @@ public class RendererConfiguration extends BaseConfiguration {
 	 *
 	 * @param name Original name
 	 * @param suffix Additional media information
-	 * @param dlna The actual DLNA resource
+	 * @param resource The actual resource
 	 * @return Reformatted name
 	 */
-	public String getDcTitle(String name, String suffix, DLNAResource dlna) {
+	public String getDcTitle(String name, String suffix, StoreResource resource) {
 		// Wrap + truncate
 		int len = 0;
 		if (suffix == null) {
@@ -1444,8 +1262,8 @@ public class RendererConfiguration extends BaseConfiguration {
 				len = lineWidth - suffixLength;
 			} else {
 				// Wrap
-				int i = dlna.isFolder() ? 0 : indent;
-				String newline = "\n" + (dlna.isFolder() ? "" : inset);
+				int i = resource.isFolder() ? 0 : indent;
+				String newline = "\n" + (resource.isFolder() ? "" : inset);
 				name = name.substring(0, i + (i < name.length() && Character.isWhitespace(name.charAt(i)) ? 1 : 0)) +
 					WordUtils.wrap(name.substring(i) + suffix, lineWidth - i, newline, true);
 				len = lineWidth * lineHeight;
@@ -1467,7 +1285,7 @@ public class RendererConfiguration extends BaseConfiguration {
 		}
 
 		// Substitute
-		for (Entry<String, String> entry : charMap.entrySet()) {
+		for (Map.Entry<String, String> entry : charMap.entrySet()) {
 			String repl = entry.getValue().replace("###e", "");
 			name = name.replaceAll(entry.getKey(), repl);
 		}
@@ -1548,19 +1366,18 @@ public class RendererConfiguration extends BaseConfiguration {
 	 *       refactor the logic of the caller to make that function only run
 	 *       once
 	 * @param subtitle Subtitles for checking
-	 * @param dlna
+	 * @param resource
 	 * @return whether the renderer specifies support for the subtitles and
 	 * renderer supports subs streaming for the given media video.
 	 */
-	public boolean isExternalSubtitlesFormatSupported(MediaSubtitle subtitle, DLNAResource dlna) {
-		if (subtitle == null || subtitle.getType() == null || dlna == null) {
+	public boolean isExternalSubtitlesFormatSupported(MediaSubtitle subtitle, StoreItem resource) {
+		if (subtitle == null || subtitle.getType() == null || resource == null) {
 			return false;
 		}
 
 		LOGGER.trace("Checking whether the external subtitles format " + subtitle.getType().toString() + " is supported by the renderer");
-
 		return getFormatConfiguration().getMatchedMIMEtype(
-			dlna.getMedia().getContainer(),
+			resource.getMediaInfo().getContainer(),
 			null,
 			null,
 			0,
@@ -1604,16 +1421,16 @@ public class RendererConfiguration extends BaseConfiguration {
 	 * Check if the internal subtitle type is supported by renderer.
 	 *
 	 * @param subtitle Subtitles for checking
-	 * @param dlna The dlna resource
+	 * @param resource The resource
 	 * @return whether the renderer specifies support for the subtitles
 	 */
-	public boolean isEmbeddedSubtitlesFormatSupported(MediaSubtitle subtitle, DLNAResource dlna) {
+	public boolean isEmbeddedSubtitlesFormatSupported(MediaSubtitle subtitle, StoreItem resource) {
 		if (subtitle == null) {
 			return false;
 		}
 
 		LOGGER.trace("Checking whether the embedded subtitles format " + (subtitle.getType().toString() != null ? subtitle.getType().toString() : "null") + " is supported by the renderer");
-		return getFormatConfiguration().getMatchedMIMEtype(dlna, this) != null;
+		return getFormatConfiguration().getMatchedMIMEtype(resource, this) != null;
 	}
 
 	public boolean isEmbeddedSubtitlesSupported() {
@@ -1762,13 +1579,13 @@ public class RendererConfiguration extends BaseConfiguration {
 	 *       the result of getMatchedMIMEtype, so it would be better to
 	 *       refactor the logic of the caller to make that function only run
 	 *       once
-	 * @param dlna the resource to check
+	 * @param resource the resource to check
 	 * @return whether the video bit depth is supported.
 	 */
-	public boolean isVideoBitDepthSupported(DLNAResource dlna) {
+	public boolean isVideoBitDepthSupported(StoreItem resource) {
 		Integer videoBitDepth = null;
-		if (dlna.getMedia() != null) {
-			videoBitDepth = dlna.getMedia().getVideoBitDepth();
+		if (resource.getMediaInfo() != null && resource.getMediaInfo().getDefaultVideoTrack() != null) {
+			videoBitDepth = resource.getMediaInfo().getDefaultVideoTrack().getBitDepth();
 		}
 
 		if (videoBitDepth != null) {
@@ -1781,7 +1598,7 @@ public class RendererConfiguration extends BaseConfiguration {
 		}
 
 		LOGGER.trace("Checking whether the video bit depth " + (videoBitDepth != null ? videoBitDepth : "null") + " matches any 'vbd' entries in the 'Supported' lines");
-		return getFormatConfiguration().getMatchedMIMEtype(dlna, this) != null;
+		return getFormatConfiguration().getMatchedMIMEtype(resource, this) != null;
 	}
 
 	/**

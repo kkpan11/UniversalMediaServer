@@ -16,52 +16,53 @@
  */
 package net.pms.service;
 
-import net.pms.dlna.DLNAResource;
 import net.pms.formats.Format;
-import net.pms.renderers.Renderer;
+import net.pms.store.StoreItem;
 
-// a utility class, instances of which trigger start/stop callbacks before/after streaming a resource
+// a utility class, instances of which trigger start/stop callbacks before/after streaming a item
 public class StartStopListenerDelegate {
+
 	private final String rendererId;
-	private DLNAResource dlna;
+	private StoreItem item;
 	private boolean started = false;
 	private boolean stopped = false;
-	private Renderer renderer;
+
+	public StartStopListenerDelegate(String rendererId, StoreItem item) {
+		this.rendererId = rendererId;
+		this.item = item;
+	}
 
 	public StartStopListenerDelegate(String rendererId) {
 		this.rendererId = rendererId;
-		renderer = null;
 	}
 
-	public void setRenderer(Renderer r) {
-		renderer = r;
-	}
-
-	public Renderer getRenderer() {
-		return renderer;
+	public synchronized void start(StoreItem item) {
+		assert this.item == null;
+		this.item = item;
+		start();
 	}
 
 	// technically, these don't need to be synchronized as there should be
 	// one thread per request/response, but it doesn't hurt to enforce the contract
-	public synchronized void start(DLNAResource dlna) {
-		assert this.dlna == null;
-		this.dlna = dlna;
-		Format ext = dlna.getFormat();
+	public synchronized void start() {
+		assert this.item != null;
+		Format format = item.getFormat();
 		// only trigger the start/stop events for audio and video
-		if (!started && ext != null && (ext.isVideo() || ext.isAudio())) {
-			dlna.startPlaying(rendererId, renderer);
+		if (!started && format != null && (format.isVideo() || format.isAudio())) {
+			item.startPlaying(rendererId);
 			started = true;
 			Services.sleepManager().startPlaying();
 		} else {
-			Services.sleepManager().postponeSleep();
+			Services.postponeSleep();
 		}
 	}
 
 	public synchronized void stop() {
 		if (started && !stopped) {
-			dlna.stopPlaying(rendererId, renderer);
+			item.stopPlaying(rendererId);
 			stopped = true;
 			Services.sleepManager().stopPlaying();
 		}
 	}
+
 }

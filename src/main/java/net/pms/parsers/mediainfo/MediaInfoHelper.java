@@ -26,19 +26,25 @@ import org.slf4j.LoggerFactory;
 // Copyright (C) 2009-2009 Jerome Martinez, Zen@MediaArea.net
 // net.sourceforge.mediainfo
 public class MediaInfoHelper implements AutoCloseable {
+
 	private static final Logger LOGGER = LoggerFactory.getLogger(MediaInfoHelper.class);
 
 	private Pointer handle;
 
 	// Constructor/Destructor
-	public MediaInfoHelper() {
+	public MediaInfoHelper(boolean log) {
 		try {
-			LOGGER.info("Loading MediaInfo library");
+			if (log) {
+				LOGGER.info("Loading MediaInfo library");
+			}
 			handle = MediaInfoLibrary.INSTANCE.New();
-			LOGGER.info("Loaded {}", optionStatic("Info_Version"));
-
+			if (log) {
+				LOGGER.info("Loaded {}", optionStatic("Info_Version"));
+			}
 			if (!Platform.isWindows()) {
-				LOGGER.debug("Setting MediaInfo library characterset to UTF-8");
+				if (log) {
+					LOGGER.debug("Setting MediaInfo library characterset to UTF-8");
+				}
 				setUTF8();
 			}
 		} catch (Throwable e) {
@@ -68,15 +74,6 @@ public class MediaInfoHelper implements AutoCloseable {
 	public void close() throws Exception {
 		if (handle != null) {
 			dispose();
-		}
-	}
-
-	@Override
-	protected void finalize() throws Throwable {
-		try {
-			close();
-		} finally {
-			super.finalize();
 		}
 	}
 
@@ -188,6 +185,40 @@ public class MediaInfoHelper implements AutoCloseable {
 			streamNumber,
 			parameterIndex,
 			infoType.getValue()).toString();
+	}
+
+	public Long getLong(StreamKind streamType, int streamNumber, String parameter) {
+		String result = get(streamType, streamNumber, parameter);
+		if (result != null && !"".equals(result)) {
+			try {
+				return Long.valueOf(result);
+			} catch (NumberFormatException e) {
+				StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
+				if (stackTraceElements.length > 1) {
+					LOGGER.debug("Could not parse \"{}\" as Long for \"{}.{}\"", result, stackTraceElements[2].getClassName(), stackTraceElements[2].getMethodName());
+				} else {
+					LOGGER.debug("Could not parse \"{}\" as Long", result);
+				}
+			}
+		}
+		return null;
+	}
+
+	public Double getDouble(StreamKind streamType, int streamNumber, String parameter) {
+		String result = get(streamType, streamNumber, parameter);
+		if (result != null && !"".equals(result)) {
+			try {
+				return Double.valueOf(result);
+			} catch (NumberFormatException e) {
+				StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
+				if (stackTraceElements.length > 1) {
+					LOGGER.debug("Could not parse \"{}\" as Double for \"{}.{}\"", result, stackTraceElements[2].getClassName(), stackTraceElements[2].getMethodName());
+				} else {
+					LOGGER.debug("Could not parse \"{}\" as Double", result);
+				}
+			}
+		}
+		return null;
 	}
 
 	/**

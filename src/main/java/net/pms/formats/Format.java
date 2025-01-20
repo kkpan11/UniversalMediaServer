@@ -18,11 +18,9 @@ package net.pms.formats;
 
 import java.util.Locale;
 import net.pms.configuration.RendererConfigurations;
-import net.pms.dlna.DLNAResource;
-import net.pms.dlna.InputFile;
-import net.pms.media.MediaInfo;
 import net.pms.network.HTTPResource;
 import net.pms.renderers.Renderer;
+import net.pms.store.StoreItem;
 import net.pms.util.FileUtil;
 import net.pms.util.StringUtil;
 import org.slf4j.Logger;
@@ -45,6 +43,7 @@ public abstract class Format implements Cloneable {
 	private String matchedExtension;
 
 	public enum Identifier {
+		AACP,
 		AC3,
 		ADPCM,
 		ADTS,
@@ -111,6 +110,7 @@ public abstract class Format implements Cloneable {
 		PLAYLIST
 	}
 
+	public static final int UNSET    =  0;
 	public static final int AUDIO    =  1;
 	public static final int IMAGE    =  2;
 	public static final int VIDEO    =  4;
@@ -179,14 +179,14 @@ public abstract class Format implements Cloneable {
 	 * streamed (as opposed to having to be transcoded), <code>true</code> will
 	 * be returned.
 	 *
-	 * @param dlna The media information.
+	 * @param resource The media information.
 	 * @param renderer The renderer for which to check. If <code>null</code>
 	 *                 is set as renderer, the default renderer configuration
 	 *                 will be used.
 	 * @return Whether the format can be handled by the renderer
 	 * @since 1.50.1
 	 */
-	public boolean isCompatible(DLNAResource dlna, Renderer renderer) {
+	public boolean isCompatible(StoreItem resource, Renderer renderer) {
 		Renderer referenceRenderer;
 
 		if (renderer != null) {
@@ -198,7 +198,7 @@ public abstract class Format implements Cloneable {
 		}
 
 		// Let the renderer configuration decide on native compatibility
-		return referenceRenderer.isCompatible(dlna, this);
+		return referenceRenderer.isCompatible(resource, this);
 	}
 
 	public abstract boolean transcodable();
@@ -284,19 +284,6 @@ public abstract class Format implements Cloneable {
 	}
 
 	/**
-	 * Chooses which parsing method to parse the file with.
-	 */
-	public void parse(MediaInfo media, InputFile file, int type, Renderer renderer) {
-		if (renderer != null && renderer.isUseMediaInfo()) {
-			renderer.getFormatConfiguration().parse(media, file, this, type, renderer);
-		} else {
-			media.parse(file, this, type, false);
-		}
-
-		LOGGER.trace("Parsing results for file \"{}\": {}", file.toString(), media.toString());
-	}
-
-	/**
 	 * Returns whether or not the matched extension of this format is among
 	 * the list of supplied extensions.
 	 *
@@ -342,4 +329,18 @@ public abstract class Format implements Cloneable {
 	 * @return The identifier.
 	 */
 	public abstract Identifier getIdentifier();
+
+	public static String getStringType(int type) {
+		return switch (type) {
+			case AUDIO -> "AUDIO";
+			case IMAGE -> "IMAGE";
+			case VIDEO -> "VIDEO";
+			case UNKNOWN -> "UNKNOWN";
+			case PLAYLIST -> "PLAYLIST";
+			case ISO -> "ISO";
+			case SUBTITLE -> "SUBTITLE";
+			default -> "NOT DEFINED";
+		};
+	}
+
 }

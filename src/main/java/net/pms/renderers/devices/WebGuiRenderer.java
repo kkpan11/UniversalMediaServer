@@ -20,23 +20,16 @@ import com.google.gson.JsonObject;
 import net.pms.Messages;
 import net.pms.PMS;
 import net.pms.configuration.UmsConfiguration;
-import net.pms.dlna.DLNAResource;
-import net.pms.iam.Account;
-import net.pms.iam.AccountService;
 import net.pms.image.ImageFormat;
-import net.pms.network.HTTPResource;
-import net.pms.network.IServerSentEvents;
+import net.pms.network.webguiserver.IEventSourceClient;
 import net.pms.renderers.Renderer;
 import net.pms.renderers.devices.players.BasicPlayer;
 import net.pms.renderers.devices.players.WebGuiPlayer;
-import net.pms.service.StartStopListenerDelegate;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class WebGuiRenderer extends Renderer {
-	private static final Logger LOGGER = LoggerFactory.getLogger(WebGuiRenderer.class);
+
 	private static final UmsConfiguration CONFIGURATION = PMS.getConfiguration();
 
 	private static final int CHROME = 1;
@@ -50,39 +43,33 @@ public class WebGuiRenderer extends Renderer {
 	private static final int CHROMIUM = 9;
 	private static final int VIVALDI = 10;
 
-	private final int userId;
 	private final int browser;
 	private final String subLang;
-	private IServerSentEvents sse;
-	private StartStopListenerDelegate startStop;
+	private IEventSourceClient sse;
 
 	public WebGuiRenderer(String uuid, int userId, String userAgent, String subLang) throws ConfigurationException, InterruptedException {
 		super(uuid);
-		this.userId = userId;
+		setUserId(userId);
 		this.browser = getBrowser(userAgent);
 		this.subLang = subLang;
 		setFileless(true);
-		startStop = null;
 		configuration.setProperty(KEY_MEDIAPARSERV2, true);
-		configuration.setProperty(KEY_MEDIAPARSERV2_THUMB, true);
-		configuration.setProperty(KEY_SUPPORTED, "f:mpegts v:h264 a:aac-lc|aac-ltp|aac-main|aac-ssr|he-aac|ac3|eac3 m:video/mp2t");
-		configuration.setProperty(KEY_SUPPORTED, "f:mp3 n:2 m:audio/mpeg");
-		configuration.setProperty(KEY_SUPPORTED, "f:m4a m:audio/mp4");
-		configuration.setProperty(KEY_SUPPORTED, "f:oga a:vorbis|flac m:audio/ogg");
-		configuration.setProperty(KEY_SUPPORTED, "f:wav n:2 m:audio/wav");
-		configuration.setProperty(KEY_TRANSCODE_AUDIO, TRANSCODE_TO_MP3);
-		configuration.setProperty(KEY_TRANSCODE_VIDEO, HLSMPEGTSH264AAC);
+		configuration.setProperty(KEY_MEDIAPARSERV2_THUMB, false);
+		configuration.setProperty(KEY_TRANSCODE_AUDIO, "MP3");
+		configuration.setProperty(KEY_TRANSCODE_VIDEO, "HLS-MPEGTS-H264-AAC,MP4-H264-AAC");
 		configuration.setProperty(KEY_HLS_MULTI_VIDEO_QUALITY, true);
 		configuration.setProperty(KEY_HLS_VERSION, 6);
+		configuration.setProperty(KEY_AUTO_PLAY_TMO, 0);
+		configuration.setProperty(KEY_LIMIT_FOLDERS, false);
+	}
+
+	@Override
+	public boolean isAuthenticated() {
+		return true;
 	}
 
 	public boolean havePermission(int permission) {
-		if (userId == Integer.MAX_VALUE) {
-			return true;
-		} else {
-			Account account = AccountService.getAccountByUserId(userId);
-			return (account != null && account.havePermission(permission));
-		}
+		return account.havePermission(permission);
 	}
 
 	public boolean isImageFormatSupported(ImageFormat format) {
@@ -102,10 +89,6 @@ public class WebGuiRenderer extends Renderer {
 		};
 	}
 
-	public String getVideoMimeType() {
-		return HTTPResource.HLS_TYPEMIME;
-	}
-
 	@Override
 	public String getRendererName() {
 		String username = getUserName();
@@ -121,14 +104,11 @@ public class WebGuiRenderer extends Renderer {
 	}
 
 	public String getUserName() {
-		if (userId != Integer.MAX_VALUE) {
-			Account account = AccountService.getAccountByUserId(userId);
-			if (account != null && account.getUser() != null) {
-				if (StringUtils.isNotEmpty(account.getUser().getDisplayName())) {
-					return account.getUser().getDisplayName();
-				} else if (StringUtils.isNotEmpty(account.getUser().getUsername())) {
-					return account.getUser().getUsername();
-				}
+		if (account.getUser() != null && account.getUser().getId() != Integer.MAX_VALUE) {
+			if (StringUtils.isNotEmpty(account.getUser().getDisplayName())) {
+				return account.getUser().getDisplayName();
+			} else if (StringUtils.isNotEmpty(account.getUser().getUsername())) {
+				return account.getUser().getUsername();
 			}
 		}
 		return null;
@@ -137,34 +117,18 @@ public class WebGuiRenderer extends Renderer {
 	@Override
 	public String getRendererIcon() {
 		return switch (browser) {
-			case CHROME -> "chrome.png";
-			case MSIE -> "internetexplorer.png";
-			case FIREFOX -> "firefox.png";
-			case SAFARI -> "safari.png";
+			case CHROME -> "chrome.svg";
+			case MSIE -> "internetexplorer.svg";
+			case FIREFOX -> "firefox.svg";
+			case SAFARI -> "safari.svg";
 			case PS4 -> "ps4.png";
 			case XBOX1 -> "xbox-one.png";
-			case OPERA -> "opera.png";
-			case EDGE -> "edge.png";
-			case CHROMIUM -> "chromium.png";
-			case VIVALDI -> "vivaldi.png";
+			case OPERA -> "opera.svg";
+			case EDGE -> "edge.svg";
+			case CHROMIUM -> "chromium.svg";
+			case VIVALDI -> "vivaldi.svg";
 			default -> super.getRendererIcon();
 		};
-	}
-
-	@Override
-	public boolean isMediaInfoThumbnailGeneration() {
-		return false;
-	}
-
-	@Override
-	public boolean isLimitFolders() {
-		// no folder limit on the web clients
-		return false;
-	}
-
-	@Override
-	public int getAutoPlayTmo() {
-		return 0;
 	}
 
 	@Override
@@ -198,6 +162,16 @@ public class WebGuiRenderer extends Renderer {
 		return subLang;
 	}
 
+	@Override
+	public boolean isAllowed() {
+		return true;
+	}
+
+	@Override
+	public void setAllowed(boolean b) {
+		//nothing to change
+	}
+
 	public void sendMessage(String... args) {
 		JsonObject jObject = new JsonObject();
 		jObject.addProperty("action", "player");
@@ -216,7 +190,7 @@ public class WebGuiRenderer extends Renderer {
 		updateServerSentEventsActive();
 	}
 
-	public void addServerSentEvents(IServerSentEvents sse) {
+	public void addServerSentEvents(IEventSourceClient sse) {
 		if (this.sse != null && this.sse.isOpened()) {
 			this.sse.close();
 		}
@@ -229,31 +203,6 @@ public class WebGuiRenderer extends Renderer {
 		if (sseOpened != isActive()) {
 			setActive(sseOpened);
 		}
-	}
-
-	public void start(DLNAResource dlna) {
-		// Stop playing any previous media on the renderer
-		if (getPlayingRes() != null && getPlayingRes() != dlna) {
-			stop();
-		}
-
-		setPlayingRes(dlna);
-		if (startStop == null) {
-			startStop = new StartStopListenerDelegate(getAddress().getHostAddress());
-		}
-		startStop.setRenderer(this);
-		startStop.start(getPlayingRes());
-	}
-
-	public void stop() {
-		if (startStop == null) {
-			return;
-		}
-		if (getPlayingRes() != null) {
-			LOGGER.trace("WebGuiRender stop for " + getPlayingRes().getDisplayName());
-		}
-		startStop.stop();
-		startStop = null;
 	}
 
 	private static String getBrowserName(int browser) {

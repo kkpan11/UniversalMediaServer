@@ -20,7 +20,6 @@ import java.awt.color.ColorSpace;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import net.pms.image.BufferedImageFilterChain;
 import net.pms.image.ColorSpaceType;
 import net.pms.image.ImageFormat;
@@ -226,7 +225,6 @@ public class DLNAThumbnailInputStream extends ByteArrayInputStream {
 	 *            {@code false} a reference to the existing array is returned.
 	 * @return The bytes of this thumbnail.
 	 */
-	@SuppressFBWarnings("EI_EXPOSE_REP")
 	public byte[] getBytes(boolean copy) {
 		if (copy) {
 			byte[] result = new byte[buf.length];

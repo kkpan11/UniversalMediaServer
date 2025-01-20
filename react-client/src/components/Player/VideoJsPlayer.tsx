@@ -16,28 +16,45 @@
  */
 import axios from 'axios';
 import { useEffect } from 'react';
-import videojs, { ReadyCallback } from 'video.js';
-import Player from 'video.js/dist/types/player';
-import '@mycujoo/videojs-hls-quality-selector/dist/videojs-hls-quality-selector.es';
+import videojs from 'video.js';
+import Player, { PlayerReadyCallback } from 'video.js/dist/types/player';
 import 'video.js/dist/video-js.min.css';
-import '@mycujoo/videojs-hls-quality-selector/dist/videojs-hls-quality-selector.css';
 
 import { playerApiUrl } from '../../utils';
 import { AudioMedia, BaseMedia, VideoMedia } from './Player';
+import './HlsQualitySelector/HlsQualitySelectorPlugin';
 
 export const VideoJsPlayer = (vpOptions: VideoPlayerOption) => {
   useEffect(() => {
     const videoElem = document.createElement('video');
     videoElem.id = 'player';
-    videoElem.classList.add('video-js', 'vjs-default-skin', 'vjs-fluid', 'vjs-big-play-centered', 'full-card', 'card');
+    videoElem.classList.add('video-js', 'vjs-default-skin', 'vjs-fill', 'vjs-big-play-centered', 'full-card', 'card');
     document.getElementById('videodiv')?.appendChild(videoElem);
 
     const videoMedia = (vpOptions.media.mediaType === 'video') ? (vpOptions.media as VideoMedia) : null;
     const options = {} as any;
     options.liveui = true;
     options.controls = true;
+    options.userActions = {
+      hotkeys: function(event: any) {
+        if (event.which === 32) {
+          if (this.paused()) {
+            this.play();
+          } else {
+            this.pause();
+          }
+        }
+        if (event.which === 37) {
+          this.currentTime(Math.max(0, this.currentTime() - 15));
+        }
+        if (event.which === 39) {
+          const duration = this.liveTracker && this.liveTracker.isLive() ? this.liveTracker.seekableEnd() : this.duration();
+          this.currentTime(Math.min(this.currentTime() + 15), duration);
+        }
+      }
+    };
     options.sources = [{ src: playerApiUrl + 'media/' + vpOptions.uuid + '/' + vpOptions.media.id, type: vpOptions.media.mime }];
-    options.poster = playerApiUrl + 'thumb/' + vpOptions.uuid + '/' + vpOptions.media.id;
+    options.poster = playerApiUrl + 'thumbnail/' + vpOptions.uuid + '/' + vpOptions.media.id;
     if (vpOptions.media.mediaType === 'audio') {
       options.audioPosterMode = true;
     }
@@ -55,7 +72,7 @@ export const VideoJsPlayer = (vpOptions: VideoPlayerOption) => {
         }
       }
     }
-    const onready = (player: Player) => {
+    const onready = (_player: Player) => {
       const volumeStatus = () => {
         setStatus('mute', videoPlayer.muted() ? '1' : '0', true);
         setStatus('volume', ((videoPlayer.volume() || 0) * 100).toFixed(0), false);
@@ -116,11 +133,15 @@ export const VideoJsPlayer = (vpOptions: VideoPlayerOption) => {
         }
       }
       if (vpOptions.media.mime === 'application/x-mpegURL') {
-        (videoPlayer as any).hlsQualitySelector();
+        try {
+          (videoPlayer as any).hlsQualitySelector();
+        } catch (error) {
+          videojs.log(error);
+        }
       }
     };
 
-    const videoPlayer = videojs(videoElem, options, onready as ReadyCallback);
+    const videoPlayer = videojs(videoElem, options, onready as PlayerReadyCallback);
 
     return () => {
       if (!videoPlayer.isDisposed()) {

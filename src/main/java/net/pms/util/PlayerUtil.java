@@ -16,8 +16,8 @@
  */
 package net.pms.util;
 
-import net.pms.dlna.DLNAResource;
 import net.pms.formats.Format;
+import net.pms.store.StoreItem;
 
 public class PlayerUtil {
 	/**
@@ -25,12 +25,12 @@ public class PlayerUtil {
 	 */
 	private PlayerUtil() { }
 
-	// Returns whether or not the supplied DLNA resource matches the supplied format and format identifier
-	private static boolean isType(DLNAResource resource, int matchType, Format.Identifier matchIdentifier) {
+	// Returns whether or not the supplied store item matches the supplied format and format identifier
+	private static boolean isType(StoreItem item, int matchType, Format.Identifier matchIdentifier) {
 		boolean match = false;
 
-		if (resource != null) {
-			Format format = resource.getFormat();
+		if (item != null) {
+			Format format = item.getFormat();
 
 			// the int returned by format.getType() is a bitmap, so match by checking the bit is set
 			// XXX the old isCompatible implementations (incorrectly) used to match
@@ -49,85 +49,85 @@ public class PlayerUtil {
 	}
 
 	/**
-	 * Returns whether or not the supplied DLNA resource is an image file.
+	 * Returns whether or not the supplied store item is an image file.
 	 *
-	 * @param resource the DLNA resource
-	 * @return true if the DLNA resource is an image file, false otherwise.
+	 * @param item the store item
+	 * @return true if the store item is an image file, false otherwise.
 	 */
-	public static boolean isImage(DLNAResource resource) {
-		return isType(resource, Format.IMAGE, null);
+	public static boolean isImage(StoreItem item) {
+		return isType(item, Format.IMAGE, null);
 	}
 
 	/**
-	 * Returns whether or not the supplied DLNA resource is an image file.
+	 * Returns whether or not the supplied store item is an image file.
 	 *
-	 * @param resource the DLNA resource
+	 * @param item the store item
 	 * @param identifier the format identifier to match against
-	 * @return true if the DLNA resource is an image file with the specified format identifier, false otherwise
+	 * @return true if the store item is an image file with the specified format identifier, false otherwise
 	 */
-	public static boolean isImage(DLNAResource resource, Format.Identifier identifier) {
-		return isType(resource, Format.IMAGE, identifier);
+	public static boolean isImage(StoreItem item, Format.Identifier identifier) {
+		return isType(item, Format.IMAGE, identifier);
 	}
 
 	/**
-	 * Returns whether or not the supplied DLNA resource is an audio file.
+	 * Returns whether or not the supplied store item is an audio file.
 	 *
-	 * @param resource the DLNA resource
-	 * @return true if the DLNA resource is an audio file, false otherwise.
+	 * @param item the store item
+	 * @return true if the store item is an audio file, false otherwise.
 	 */
-	public static boolean isAudio(DLNAResource resource) {
-		return isType(resource, Format.AUDIO, null);
+	public static boolean isAudio(StoreItem item) {
+		return isType(item, Format.AUDIO, null);
 	}
 
 	/**
-	 * Returns whether or not the supplied DLNA resource is an audio file.
+	 * Returns whether or not the supplied store item is an audio file.
 	 *
-	 * @param resource the DLNA resource
+	 * @param item the store item
 	 * @param identifier the format identifier to match against
-	 * @return true if the DLNA resource is an audio file with the specified format identifier, false otherwise
+	 * @return true if the store item is an audio file with the specified format identifier, false otherwise
 	 */
-	public static boolean isAudio(DLNAResource resource, Format.Identifier identifier) {
-		return isType(resource, Format.AUDIO, identifier);
+	public static boolean isAudio(StoreItem item, Format.Identifier identifier) {
+		return isType(item, Format.AUDIO, identifier);
 	}
 
 	/**
-	 * Returns whether or not the supplied DLNA resource is a video file.
+	 * Returns whether or not the supplied store item is a video file.
 	 *
-	 * @param resource the DLNA resource
-	 * @return true if the DLNA resource is a video file, false otherwise.
+	 * @param item the store item
+	 * @return true if the store item is a video file, false otherwise.
 	 */
-	public static boolean isVideo(DLNAResource resource) {
-		return isType(resource, Format.VIDEO, null);
+	public static boolean isVideo(StoreItem item) {
+		return isType(item, Format.VIDEO, null);
 	}
 
 	/**
-	 * Returns whether or not the supplied DLNA resource is a video file.
+	 * Returns whether or not the supplied store item is a video file.
 	 *
-	 * @param resource the DLNA resource
+	 * @param item the store item
 	 * @param identifier the format identifier to match against
-	 * @return true if the DLNA resource is a video file with the specified format identifier, false otherwise.
+	 * @return true if the store item is a video file with the specified format identifier, false otherwise.
 	 */
-	public static boolean isVideo(DLNAResource resource, Format.Identifier identifier) {
-		return isType(resource, Format.VIDEO, identifier);
+	public static boolean isVideo(StoreItem item, Format.Identifier identifier) {
+		return isType(item, Format.VIDEO, identifier);
 	}
 
 	/**
-	 * Returns whether or not the supplied DLNA resource is a web audio file.
+	 * Returns whether or not the supplied store item is a web audio file.
 	 *
-	 * @param resource the DLNA resource
-	 * @return true if the DLNA resource is a web audio file, false otherwise.
+	 * @param resource the store item
+	 * @return true if the store item is a web audio file, false otherwise.
 	 */
-	public static boolean isWebAudio(DLNAResource resource) {
-		return isType(resource, Format.AUDIO, Format.Identifier.WEB);
+	public static boolean isWebAudio(StoreItem item) {
+		return isType(item, Format.AUDIO, Format.Identifier.WEB);
 	}
 
 	/**
-	 * Returns whether or not the supplied DLNA resource is a web video file.
+	 * Returns whether or not the supplied store item is a web video file.
 	 *
-	 * @param resource the DLNA resource
-	 * @return true if the DLNA resource is a web video file, false otherwise.
+	 * @param item the store item
+	 * @return true if the store item is a web video file, false otherwise.
 	 */
-	public static boolean isWebVideo(DLNAResource resource) {
-		return isType(resource, Format.VIDEO, Format.Identifier.WEB);
+	public static boolean isWebVideo(StoreItem item) {
+		return isType(item, Format.VIDEO, Format.Identifier.WEB);
 	}
 }

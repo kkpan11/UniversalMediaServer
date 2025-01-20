@@ -16,19 +16,11 @@
  */
 package net.pms.network.mediaserver.jupnp;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.LoggerContext;
-import net.pms.PMS;
-import net.pms.configuration.UmsConfiguration;
 import net.pms.network.mediaserver.jupnp.model.meta.UmsLocalDevice;
 import net.pms.network.mediaserver.jupnp.registry.UmsRegistryListener;
 import org.jupnp.UpnpServiceImpl;
-import org.jupnp.model.meta.LocalDevice;
 import org.jupnp.protocol.ProtocolFactory;
 import org.jupnp.registry.Registry;
-import org.jupnp.util.SpecificationViolationReporter;
-import org.slf4j.LoggerFactory;
 
 /**
  * HTTPMU/HTTPU only implementation. Use it's own ssdp upnp server if
@@ -38,23 +30,10 @@ import org.slf4j.LoggerFactory;
  */
 public class UmsUpnpService extends UpnpServiceImpl {
 
-	private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger(UmsUpnpService.class);
-	private static final UmsConfiguration CONFIGURATION = PMS.getConfiguration();
+	private final UmsLocalDevice mediaServerDevice = UmsLocalDevice.createMediaServerDevice();
 
-	private final LocalDevice mediaServerDevice = UmsLocalDevice.createMediaServerDevice();
-
-	public UmsUpnpService(boolean serveContentDirectory) {
-		super(new UmsUpnpServiceConfiguration(serveContentDirectory));
-		//don't log org.jupnp by default to reflext Cling not log to UMS.
-		if (!LOGGER.isTraceEnabled() && !CONFIGURATION.isUpnpDebug()) {
-			LOGGER.debug("Upnp set in silent log mode");
-			LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
-			Logger rootLogger = loggerContext.getLogger("org.jupnp");
-			rootLogger.setLevel(Level.OFF);
-			rootLogger = loggerContext.getLogger("org.jupnp.support");
-			rootLogger.setLevel(Level.OFF);
-			SpecificationViolationReporter.disableReporting();
-		}
+	public UmsUpnpService() {
+		super(new UmsUpnpServiceConfiguration());
 	}
 
 	@Override
@@ -68,4 +47,5 @@ public class UmsUpnpService extends UpnpServiceImpl {
 	public void sendAlive() {
 		getProtocolFactory().createSendingNotificationAlive(mediaServerDevice).run();
 	}
+
 }

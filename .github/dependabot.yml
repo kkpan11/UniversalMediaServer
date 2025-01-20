@@ -8,7 +8,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/react-client"
     schedule:
-      interval: "daily"
+      interval: "weekly"
     groups:
       eslint:
         patterns:
@@ -19,11 +19,36 @@ updates:
       react:
         patterns:
         - "react|react-dom"
+      types:
+        patterns:
+        - "@types/*"
+      typescript-eslint:
+        patterns:
+        - "@typescript-eslint*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
   - package-ecosystem: "maven"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+    groups:
+      jetty:
+        patterns:
+        - "org.eclipse.jetty*"
+      junit:
+        patterns:
+        - "*junit*"
+      jupnp:
+        patterns:
+        - "*jupnp*"
+      logback:
+        patterns:
+        - "ch.qos.logbac*"
+      mockito:
+        patterns:
+        - "*mockito*"
+      twelvemonkeys:
+        patterns:
+        - "*twelvemonkeys*"

@@ -16,14 +16,12 @@
  */
 package net.pms.image;
 
+import com.drew.metadata.Metadata;
 import java.awt.color.ColorSpace;
 import java.awt.image.ColorModel;
 import net.pms.util.ParseException;
-import com.drew.metadata.Metadata;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 @SuppressWarnings("serial")
-@SuppressFBWarnings("SE_NO_SERIALVERSIONID")
 public class CURInfo extends ICOInfo {
 	/**
 	 * Use

@@ -18,7 +18,7 @@ import { ActionIcon, Box, Breadcrumbs, Button, Group, MantineSize, Modal, Paper,
 import { showNotification } from '@mantine/notifications';
 import axios from 'axios';
 import { useContext, useState, ReactNode } from 'react';
-import { CircleMinus, Devices2, Folder, Folders } from 'tabler-icons-react';
+import { IconCircleMinus, IconDevices2, IconFolder, IconFolders } from '@tabler/icons-react';
 
 import I18nContext from '../../contexts/i18n-context';
 import { openGitHubNewIssue, settingsApiUrl } from '../../utils';
@@ -31,6 +31,8 @@ export default function DirectoryChooser(props: {
   disabled?: boolean,
   formKey?: string,
   size?: MantineSize,
+  placeholder?: string,
+  withAsterisk?: boolean
 }) {
   const [isLoading, setLoading] = useState(true);
   const [opened, setOpened] = useState(false);
@@ -52,8 +54,8 @@ export default function DirectoryChooser(props: {
     }
     showNotification({
       color: 'red',
-      title: i18n.get['Error'],
-      message: i18n.get['NoDirectorySelected'],
+      title: i18n.get('Error'),
+      message: i18n.get('NoDirectorySelected'),
       autoClose: 3000,
     });
   };
@@ -70,8 +72,8 @@ export default function DirectoryChooser(props: {
         showNotification({
           id: 'data-loading',
           color: 'red',
-          title: i18n.get['Error'],
-          message: i18n.get['SubdirectoriesNotReceived'],
+          title: i18n.get('Error'),
+          message: i18n.get('SubdirectoriesNotReceived'),
           onClick: () => { openGitHubNewIssue(); },
           autoClose: 3000,
         });
@@ -86,8 +88,10 @@ export default function DirectoryChooser(props: {
       size={props.size}
       label={props.label}
       disabled={props.disabled}
-      sx={{ flex: 1 }}
+      style={{ flex: 1 }}
       value={props.path}
+      placeholder={props.placeholder}
+      withAsterisk={props.withAsterisk}
       readOnly
     />
   }
@@ -100,8 +104,8 @@ export default function DirectoryChooser(props: {
           onClose={() => setOpened(false)}
           title={
             <Group>
-              <Folders />
-              {i18n.get['SelectedDirectory']}
+              <IconFolders />
+              {i18n.get('SelectedDirectory')}
             </Group>
           }
           scrollAreaComponent={ScrollArea.Autosize}
@@ -115,9 +119,9 @@ export default function DirectoryChooser(props: {
                     loading={isLoading}
                     onClick={() => getSubdirectories('roots')}
                     variant='default'
-                    compact
+                    size='compact-md'
                   >
-                    <Devices2 />
+                    <IconDevices2 />
                   </Button>
                   {parents.map(parent => (
                     <Button
@@ -125,7 +129,7 @@ export default function DirectoryChooser(props: {
                       onClick={() => getSubdirectories(parent.value)}
                       key={'breadcrumb' + parent.label}
                       variant='default'
-                      compact
+                      size='compact-md'
                     >
                       {parent.label}
                     </Button>
@@ -133,17 +137,17 @@ export default function DirectoryChooser(props: {
                 </Breadcrumbs>
               </Group>
             </Paper>
-            <Stack spacing='xs' align='flex-start' justify='flex-start' mt='sm'>
+            <Stack gap='xs' align='flex-start' justify='flex-start' mt='sm'>
               {directories.map(directory => (
                 <Group key={'group' + directory.label}>
                   <Button
-                    leftIcon={<Folder size={18} />}
+                    leftSection={<IconFolder size={18} />}
                     variant={(selectedDirectory === directory.value) ? 'light' : 'subtle'}
                     loading={isLoading}
                     onClick={() => setSelectedDirectory(directory.value)}
                     onDoubleClick={() => getSubdirectories(directory.value)}
                     key={directory.label}
-                    compact
+                    size='compact-md'
                   >
                     {directory.label}
                   </Button>
@@ -153,7 +157,7 @@ export default function DirectoryChooser(props: {
                       loading={isLoading}
                       onClick={() => selectAndCloseModal()}
                       key={'select' + directory.label}
-                      compact
+                      size='compact-md'
                     >
                       Select
                     </Button>
@@ -164,7 +168,7 @@ export default function DirectoryChooser(props: {
           </Box>
         </Modal>
 
-        {props.tooltipText ? (<Tooltip label={props.tooltipText} width={350} color={'blue'} multiline withArrow={true}>
+        {props.tooltipText ? (<Tooltip label={props.tooltipText} style={{ width: 350 }} color={'blue'} multiline withArrow={true}>
           {input()}
         </Tooltip>) : input()
         }
@@ -174,7 +178,7 @@ export default function DirectoryChooser(props: {
               mt={props.label ? '24px' : undefined}
               size={props.size}
               onClick={() => { getSubdirectories(props.path); setOpened(true); }}
-              leftIcon={<Folders size={18} />}
+              leftSection={<IconFolders size={18} />}
             >
               ...
             </Button>
@@ -184,7 +188,7 @@ export default function DirectoryChooser(props: {
               onClick={() => selectAndCloseModal(true)}
               variant='default'
             >
-              <CircleMinus size={18} />
+              <IconCircleMinus size={18} />
             </ActionIcon>
           </>
         )}
